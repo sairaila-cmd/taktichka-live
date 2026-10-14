@@ -9,6 +9,7 @@ import battleView from './views/battle.js';
 import rulesView from './views/rules.js';
 import logView from './views/log.js';
 import adminView from './views/admin.js';
+import helpView from './views/help.js';
 
 const ROUTES = [
   [/^#?\/?$/, 'figures', figuresView],
@@ -20,6 +21,8 @@ const ROUTES = [
   [/^#\/rules$/, 'rules', rulesView],
   [/^#\/log$/, 'log', logView],
   [/^#\/admin$/, 'admin', adminView],
+  [/^#\/help$/, 'help', helpView],
+  [/^#\/help\/(admin)$/, 'help', helpView],
 ];
 
 let cleanup = null;

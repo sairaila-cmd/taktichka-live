@@ -210,3 +210,5 @@ details > summary { cursor: pointer; color: var(--muted); font-size: var(--small
 .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .tile.big b { font-size: 40px; line-height: 1; }
 .tile.state b { display: inline-flex; align-items: center; gap: 8px; }
+/* инструкции */
+.help-list { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; font-size: var(--small); line-height: 1.45; }

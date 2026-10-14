@@ -49,6 +49,8 @@ with sync_playwright() as p:
     visit("#/games", "games")
     visit("#/rules", "rules")
     visit("#/log", "log")
+    visit("#/help", "help-player", "Ход отряда")
+    visit("#/help/admin", "help-admin", "Конец игры")
     if CODE:
         page.goto(BASE + "#/")
         page.wait_for_function("() => !document.querySelector('#view .loading')", timeout=20000)

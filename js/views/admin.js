@@ -16,6 +16,7 @@ export default async function adminView(root) {
   const maps = { figures: Object.fromEntries(figures.map((f) => [f.id, f])), squads: Object.fromEntries(squads.map((s) => [s.id, s])) };
   root.append(
     h('h1', { class: 'page-title' }, 'Ведущему'),
+    h('p', { class: 'lede' }, h('a', { href: '#/help/admin' }, 'Инструкция для ведущего')),
     h('div', { class: 'grid' },
       card('Игры', games.length ? h('ul', { class: 'small', style: 'margin:0; padding-left:1.2em' }, games.map((g) =>
         h('li', {}, h('a', { href: '#/game/' + g.id }, g.title), ' — ' + STATUS_RU[g.status]))) : h('p', { class: 'empty' }, 'Игр нет.'),
