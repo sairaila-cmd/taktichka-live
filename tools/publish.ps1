@@ -33,20 +33,27 @@ $bad += git -C $site grep --cached -l -e "service_role" -- $paths ":!tools/publi
 if ($bad) { git -C $site reset --quiet; throw "Остановлено: в публикацию попали секретные файлы: $($bad -join ', ')" }
 
 git -C $site diff --cached --quiet
-if (-not $LASTEXITCODE) { Write-Output "Изменений нет: на GitHub та же версия."; exit 0 }
+$changed = [bool]$LASTEXITCODE
+$remote = git -C $site remote
+$ErrorActionPreference = "Continue"   # git/gh пишут обычные сообщения в stderr
+$unpushed = if ($remote) { git -C $site rev-list --count "origin/main..main" 2>$null } else { git -C $site rev-list --count main 2>$null }
+$ErrorActionPreference = "Stop"
+if (-not $changed -and -not [int]$unpushed) { Write-Output "Изменений нет: на GitHub та же версия."; exit 0 }
 
-git -C $site diff --cached --stat
+if ($changed) { git -C $site diff --cached --stat }
 if ($Check) {
     git -C $site reset --quiet
-    Write-Output "Проверка: изменения выше НЕ опубликованы."
+    Write-Output "Проверка: изменения выше НЕ опубликованы (неотправленных коммитов: $unpushed)."
     exit 0
 }
 
-$msg = "$Message`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git -C $site commit --quiet -m $msg
-if ($LASTEXITCODE) { throw "git commit не удался" }
+if ($changed) {
+    $msg = "$Message`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+    git -C $site commit --quiet -m $msg
+    if ($LASTEXITCODE) { throw "git commit не удался" }
+}
 
-$remote = git -C $site remote
+$ErrorActionPreference = "Continue"
 if (-not $remote) {
     gh repo view $repo --json name 2>$null | Out-Null
     if ($LASTEXITCODE) {
@@ -55,12 +62,11 @@ if (-not $remote) {
     }
     git -C $site remote add origin "https://github.com/$repo.git"
 }
-git -C $site push --quiet -u origin main
+git -C $site push --quiet -u origin main 2>&1 | Where-Object { $_ -notmatch '^(To |branch |\s)' } | ForEach-Object { "$_" }
 if ($LASTEXITCODE) { throw "Не удалось отправить коммит (git push)" }
 git -C $site log --oneline -1
 
 # GitHub Pages: включить один раз (ветка main, корень).
-$ErrorActionPreference = "Continue"
 gh api "repos/$repo/pages" 2>$null | Out-Null
 if ($LASTEXITCODE) {
     gh api -X POST "repos/$repo/pages" -f "source[branch]=main" -f "source[path]=/" | Out-Null
