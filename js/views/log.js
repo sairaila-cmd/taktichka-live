@@ -1,7 +1,7 @@
 // Общий журнал: кто, когда и что менял.
-import { rows } from '../api.js?v=202610150001';
-import { h } from '../ui.js?v=202610150001';
-import { logList } from './common.js?v=202610150001';
+import { rows } from '../api.js?v=202610150237';
+import { h } from '../ui.js?v=202610150237';
+import { logList } from './common.js?v=202610150237';
 
 export default async function logView(root) {
   const [events, figures, squads] = await Promise.all([

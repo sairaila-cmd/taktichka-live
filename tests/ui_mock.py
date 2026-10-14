@@ -1,133 +1,26 @@
 """Страница игры и помощник боя в Chromium на подставных данных (без записи в живую базу).
 
-Ответы Supabase подменяются: таблицы — из фикстур ниже (пример боя из правил),
+Ответы Supabase подменяются (tests/mock_backend.py): таблицы — из фикстур (пример боя из правил),
 вызовы api_* — записываются и отвечают «успешно».
 
   python tests/ui_mock.py [папка_для_снимков]
 """
-import functools, http.server, json, pathlib, sys, threading, urllib.parse
+import pathlib, sys
 from playwright.sync_api import sync_playwright
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from mock_backend import T, calls, serve, attach, Checks
+
 sys.stdout.reconfigure(encoding="utf-8")
-ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHOTS = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else None
-PROPS = json.loads((ROOT / "supabase" / "properties.json").read_text(encoding="utf-8"))
-COST = {"Натиск": None, "Добивание": 1, "Лечение": 1, "Всем друг": 0, "Осведомленность": 0, "Шпионаж": 0, "Мобильность": 0}
-
-players = [{"id": 1, "name": "Ведущий", "characters": [], "is_admin": True, "resources": 0, "bonus_squads": 0},
-           {"id": 2, "name": "Зои", "characters": ["Зои"], "is_admin": False, "resources": 3, "bonus_squads": 0},
-           {"id": 3, "name": "Ратбургер", "characters": ["Ратбургер"], "is_admin": False, "resources": 0, "bonus_squads": 1},
-           {"id": 4, "name": "Любомир", "characters": ["Любомир"], "is_admin": False, "resources": 0, "bonus_squads": 2},
-           {"id": 5, "name": "Самум", "characters": ["Самум"], "is_admin": False, "resources": 7, "bonus_squads": 0}]
-def fig(i, name, nom, s, l, prop): return {"id": i, "name": name, "nominal": nom, "s": s, "l": l, "v": 1, "properties": [prop],
-    "owner_label": "", "sources": "", "status": "active"}
-figures = [fig(11, "Ладья-натиск", "ладья", 5, 3, "Натиск"), fig(12, "Пешка-добивание", "пешка", 1, 2, "Добивание"),
-           fig(13, "Конь-осведомлённый", "конь", 2, 2, "Осведомленность"), fig(21, "Пешка-шпион", "пешка", 3, 1, "Шпионаж"),
-           fig(22, "Ладья-лекарь", "ладья", 7, 2, "Лечение"), fig(23, "Офицер «Всем друг»", "офицер", 5, 3, "Всем друг"),
-           fig(24, "Резервный конь", "конь", 2, 2, "Мобильность"), fig(25, "Выбывший пёс", "пешка", 4, 4, "Мобильность")]
-T = {
-    "players": players,
-    "properties": [{"name": p["name"], "phase": p["phase"], "description": p["description"], "cost": COST.get(p["name"], 0), "cost_note": None} for p in PROPS],
-    "nominals": [{"name": n, "rank": r, "max_per_strategist": m} for n, r, m in
-                 [("король", 6, 1), ("ферзь", 5, 1), ("ладья", 4, 2), ("офицер", 3, 2), ("конь", 2, 2), ("пешка", 1, 8)]],
-    "figures": figures,
-    "figure_owners": [{"figure_id": f, "player_id": 2} for f in (11, 12, 13)] + [{"figure_id": f, "player_id": 3} for f in (21, 22, 23, 24, 25)],
-    "games": [{"id": 1, "title": "Пять ликов одной Луны", "starts_at": "2026-10-20T16:00:00Z", "status": "running"}],
-    "game_gifts": [{"game_id": 1, "gift": g} for g in ("alaya", "belaya", "chernaya", "gorkaya")],
-    "strategists": [{"id": 1, "game_id": 1, "wallet": None, "invited": None, "initiative": 10},
-                    {"id": 2, "game_id": 1, "wallet": 6, "invited": None, "initiative": 4}],
-    "strategist_members": [{"strategist_id": 1, "game_id": 1, "player_id": 2}, {"strategist_id": 2, "game_id": 1, "player_id": 3},
-                           {"strategist_id": 2, "game_id": 1, "player_id": 4}],
-    "squads": [{"id": 1, "game_id": 1, "strategist_id": 1, "name": "Волки", "name_key": "волки", "destroyed": False, "dead_figure": None, "rage": 1},
-               {"id": 2, "game_id": 1, "strategist_id": 2, "name": "Совы", "name_key": "совы", "destroyed": False, "dead_figure": None, "rage": 0, "echo_id": 1},
-               {"id": 3, "game_id": 1, "strategist_id": 2, "name": "Запас", "name_key": "запас", "destroyed": False, "dead_figure": None, "rage": 0},
-               {"id": 4, "game_id": 1, "strategist_id": 2, "name": "Павшие", "name_key": "павшие", "destroyed": True, "dead_figure": None, "rage": 0}],
-    "squad_figures": [{"squad_id": 1, "figure_id": f, "game_id": 1, "strategist_id": 1, "state": "ok", "borrowed": False} for f in (11, 12, 13)] +
-                     [{"squad_id": 2, "figure_id": f, "game_id": 1, "strategist_id": 2, "state": "ok", "borrowed": False} for f in (21, 22, 23)] +
-                     [{"squad_id": 3, "figure_id": 24, "game_id": 1, "strategist_id": 2, "state": "damaged", "borrowed": False}],
-    "squad_totals": [{"squad_id": 1, "game_id": 1, "strategist_id": 1, "name": "Волки", "destroyed": False, "s": 8, "l": 7, "v": 3},
-                     {"squad_id": 2, "game_id": 1, "strategist_id": 2, "name": "Совы", "destroyed": False, "s": 15, "l": 6, "v": 3},
-                     {"squad_id": 3, "game_id": 1, "strategist_id": 2, "name": "Запас", "destroyed": False, "s": 2, "l": 2, "v": 1}],
-    "squad_moon": [{"squad_id": 1, "game_id": 1, "white_streak": False, "duplicate_nominals": 0},
-                   {"squad_id": 2, "game_id": 1, "white_streak": False, "duplicate_nominals": 0}],
-    "turns": [{"id": 1, "game_id": 1, "number": 2, "phase": "actions", "tacts": 2, "tact": 1, "current_strategist": 1}],
-    "squad_moves": [{"turn_id": 1, "squad_id": 3, "strategist_id": 2, "tact": 1, "action": "Перемещение", "movement": "Перемещение", "act": None},
-                    {"turn_id": 1, "squad_id": 2, "strategist_id": 2, "tact": 1, "action": "Нападение", "movement": None, "act": "Нападение"}],
-    "battles": [{"id": 1, "game_id": 1, "attacker": 1, "defender": 2, "status": "open", "winner": None, "result": None, "opened_by": 2, "created_at": "2026-10-20T17:00:00Z"}],
-    "battle_actions": [
-        {"id": 1, "battle_id": 1, "kind": "property", "squad_id": 2, "figure_id": 23, "property": "Всем друг", "params": {"phase": "Условие"}, "roll": None, "cost": 0},
-        {"id": 2, "battle_id": 1, "kind": "property", "squad_id": 1, "figure_id": 13, "property": "Осведомленность", "params": {"phase": "Сила"}, "roll": None, "cost": 0},
-        {"id": 3, "battle_id": 1, "kind": "roll", "squad_id": 2, "figure_id": None, "property": None, "params": {"purpose": "risk"}, "roll": 3, "cost": 0, "manual": False},
-        {"id": 4, "battle_id": 1, "kind": "roll", "squad_id": 1, "figure_id": None, "property": None, "params": {"purpose": "risk"}, "roll": 10, "cost": 0, "manual": False}],
-    "echoes_public": [{"id": 1, "game_id": 1, "name": "Святилище", "description": "Подкуп и Плен не работают.", "status": "active",
-                       "end_condition": "до конца игры", "blocked_properties": ["Подкуп", "Плен"], "move_cost": 0}],
-    "events": [{"id": 1, "at": "2026-10-20T16:05:00Z", "actor": 2, "kind": "intrigue", "game_id": 1, "figure_id": None, "squad_id": None,
-                "player_id": None, "amount": 2, "data": {"label": "Зои", "strategist": 1}, "comment": "Слухи о предателе", "reverted": False},
-               {"id": 2, "at": "2026-10-20T16:10:00Z", "actor": 3, "kind": "squad_move", "game_id": 1, "figure_id": None, "squad_id": 3,
-                "player_id": None, "amount": 2, "data": {"action": "Перемещение", "tact": 1}, "comment": None, "reverted": False},
-               {"id": 3, "at": "2026-10-20T15:00:00Z", "actor": 1, "kind": "squad_save", "game_id": 1, "figure_id": None, "squad_id": 3,
-                "player_id": None, "amount": None, "data": {"name": "Запас", "figures": [25]}, "comment": None, "reverted": False},
-               {"id": 4, "at": "2026-10-20T17:05:00Z", "actor": 1, "kind": "figure_state", "game_id": 1, "figure_id": 11, "squad_id": 1,
-                "player_id": None, "amount": None, "data": {"from": "ok", "to": "damaged"}, "comment": "Бой #1", "reverted": False}],
-    "figure_conflicts": [], "trophies": [{"id": 1, "name": "Знамя", "description": "+2 к Силе", "bonus_s": 2, "bonus_l": 0, "bonus_v": 0, "squad_id": 2, "holder": None, "status": "active"}],
-}
-calls = []
-
-def filt(rows, qs):
-    out = rows
-    for k, vals in qs.items():
-        if k in ("select", "order", "limit", "offset"): continue
-        v = vals[0]
-        def ok(r, k=k, v=v):
-            if k not in r: return True
-            x = r[k]
-            if v.startswith("eq."): return str(x).lower() == v[3:].lower()
-            if v.startswith("neq."): return str(x) != v[4:]
-            if v.startswith("in."): return str(x) in v[4:-1].split(",")
-            if v.startswith("gt."): return x is not None and float(x) > float(v[3:])
-            if v.startswith("not.is."): return x is not None
-            if v.startswith("is.null"): return x is None
-            return True
-        out = [r for r in out if ok(r)]
-    return out
-
-def handle(route):
-    req = route.request
-    u = urllib.parse.urlparse(req.url)
-    path = u.path.split("/rest/v1/")[-1]
-    if path.startswith("rpc/"):
-        fn = path[4:]
-        body = json.loads(req.post_data or "{}")
-        calls.append((fn, body))
-        admin = body.get("p_code") == "admin-test"
-        rat = body.get("p_code") == "rat-test"
-        result = {"api_whoami": {"id": 1, "name": "Ведущий", "characters": [], "is_admin": True} if admin else
-                  {"id": 3, "name": "Ратбургер", "characters": ["Ратбургер"], "is_admin": False} if rat else
-                  {"id": 2, "name": "Зои", "characters": ["Зои"], "is_admin": False},
-                  "api_admin_echoes": [dict(e) for e in T["echoes_public"]]}.get(fn)
-        if fn == "api_roll": result = 7
-        return route.fulfill(status=200, content_type="application/json", body=json.dumps(result))
-    rows = filt(T.get(path, []), urllib.parse.parse_qs(u.query))
-    route.fulfill(status=200, content_type="application/json", body=json.dumps(rows, ensure_ascii=False))
-
-class Quiet(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *a): pass
-srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(ROOT)))
-threading.Thread(target=srv.serve_forever, daemon=True).start()
-BASE = f"http://127.0.0.1:{srv.server_port}/index.html"
-errors, ok, fail = [], 0, 0
-def check(name, cond, info=""):
-    global ok, fail
-    if cond: ok += 1; print("  ✓", name)
-    else: fail += 1; print("  ✗", name, info)
+srv, BASE = serve()
+errors = []
+check = Checks()
 
 with sync_playwright() as p:
     b = p.chromium.launch()
     page = b.new_page(viewport={"width": 1280, "height": 1000})
-    page.on("pageerror", lambda e: errors.append(str(e)))
-    page.on("console", lambda m: m.type == "error" and "WebSocket" not in m.text and "realtime" not in m.text.lower() and errors.append(m.text))
-    page.route("**/rest/v1/**", handle)
-    page.route("**/realtime/**", lambda r: r.abort())
+    attach(page, errors)
 
     # вход Зои (подставной)
     page.add_init_script("localStorage.setItem('taktichka.code', 'zoi-test')")
@@ -277,5 +170,5 @@ with sync_playwright() as p:
     b.close()
 srv.shutdown()
 print("\nошибки в консоли:" if errors else "\nошибок в консоли нет", *errors, sep="\n  ")
-print(f"Итого: {ok} ✓, {fail} ✗")
-sys.exit(1 if fail or errors else 0)
+print(f"Итого: {check.ok} ✓, {check.fail} ✗")
+sys.exit(1 if check.fail or errors else 0)

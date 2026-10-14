@@ -1,8 +1,8 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, call, cache, session, isAdmin, watch, loadRefs } from '../api.js?v=202610150001';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610150001';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610150001';
-import { statsCard } from './stats.js?v=202610150001';
+import { rows, call, cache, session, isAdmin, watch, loadRefs } from '../api.js?v=202610150237';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610150237';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610150237';
+import { statsCard } from './stats.js?v=202610150237';
 
 
 export default async function gameView(root, gameId) {

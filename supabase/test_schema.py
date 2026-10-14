@@ -428,6 +428,100 @@ st = dict(sql("select figure_id, state from squad_figures where squad_id=%s", q4
 if st.get(fig["Ферзь-1"]) == "damaged" and st.get(fig["Пешка-запас"]) == "ok": ok += 1; print("  ✓ при правке состояние фигур сохранилось")
 else: fail += 1; print("  ✗ состояния:", st)
 
+def expect(name, cond, info=""):
+    global ok, fail
+    if cond: ok += 1; print(f"  ✓ {name}")
+    else: fail += 1; print(f"  ✗ {name}", info)
+
+print("\nУчастие и роспуск отряда")
+g5 = expect_ok("игра 5", "api_admin_game", A, None, "Пятая", None, "draft")
+j1 = expect_ok("Аня: Участвовать", "api_join_game", ANYA, g5)
+j2 = expect_ok("повторное «Участвовать»", "api_join_game", ANYA, g5)
+expect("повторное «Участвовать» не создаёт второго стратега", j1 == j2 and
+       sql("select count(*) from strategist_members where game_id=%s and player_id=2", g5)[0][0] == 1)
+expect_err("Участвовать в идущей игре", "api_join_game", BORYA, g4, contains="уже началась")
+tmp = expect_ok("Аня: отряд «Временный»", "api_squad_save", ANYA, g5, None, "Временный", [fig["Пешка-добивание"]])
+expect_err("Боря распускает чужой отряд", "api_squad_delete", BORYA, tmp, contains="не ваш")
+expect_ok("Аня распускает свой", "api_squad_delete", ANYA, tmp)
+expect("отряд удалён, фигура свободна", sql("select count(*) from squads where id=%s", tmp)[0][0] == 0
+       and sql("select count(*) from squad_figures where squad_id=%s", tmp)[0][0] == 0)
+expect_err("игрок распускает отряд в идущей игре", "api_squad_delete", ANYA, q4, contains="началась")
+
+print("\nДоп. отряды")
+expect_err("доп. отряды не-ведущим", "api_admin_bonus", ANYA, 2, 5, None, contains="ведущего")
+expect_err("отрицательный бонус", "api_admin_bonus", A, 2, -1, None, contains="bonus_squads")
+for nm, f_ in [("Один", "Пешка-добивание"), ("Два", "Конь-осведомленность")]:
+    expect_ok(f"Аня: отряд «{nm}»", "api_squad_save", ANYA, g5, None, nm, [fig[f_]])
+expect_err("третий отряд без бонуса", "api_squad_save", ANYA, g5, None, "Три", [fig["Пешка-воротила"]], contains="Отрядов больше")
+expect_ok("ведущий: Ане 1 доп. отряд", "api_admin_bonus", A, 2, 1, "Влияние 3")
+expect("bonus_squads = 1 и запись в журнале", sql("select bonus_squads from players where id=2")[0][0] == 1
+       and sql("select count(*) from events where kind='bonus_squads' and player_id=2 and amount=1")[0][0] == 1)
+expect_ok("с бонусом третий отряд можно", "api_squad_save", ANYA, g5, None, "Три", [fig["Пешка-воротила"]])
+
+print("\nФигура в другой отряд (Подкуп) и отмена шага боя")
+s_bor = expect_ok("ведущий добавляет Борю в игру 4", "api_admin_join", A, g4, 3)
+add(BORYA, "Б-лекарь", "пешка", 1, 1, 1, ["Лечение"])
+qb = expect_ok("ведущий собирает отряд за Борю", "api_squad_save", A, g4, None, "Борины", [fig["Б-пешка"], fig["Б-лекарь"]], s_bor)
+expect_err("игрок переносит фигуру", "api_admin_move_figure", ANYA, q4, qb, fig["Пешка-запас"], None, contains="ведущего")
+expect_ok("ведущий: пешка Ани к Боре", "api_admin_move_figure", A, q4, qb, fig["Пешка-запас"], "Подкуп")
+row = sql("select squad_id, strategist_id, borrowed from squad_figures where figure_id=%s and game_id=%s", fig["Пешка-запас"], g4)
+expect("фигура в отряде Бори, у его стратега, помечена «взята»", row == [(qb, s_bor, True)], row)
+expect("в журнале — перенос", sql("select count(*) from events where kind='figure_move' and figure_id=%s", fig["Пешка-запас"])[0][0] == 1)
+expect_ok("ведущий возвращает пешку Ане", "api_admin_move_figure", A, qb, q4, fig["Пешка-запас"], "вернуть")
+row = sql("select squad_id, borrowed from squad_figures where figure_id=%s and game_id=%s", fig["Пешка-запас"], g4)
+expect("вернувшаяся к владельцу фигура больше не «взята»", row == [(q4, False)], row)
+expect_ok("и снова к Боре", "api_admin_move_figure", A, q4, qb, fig["Пешка-запас"], "Подкуп")
+n_ev = sql("select count(*) from events where kind='figure_move'")[0][0]
+expect_err("перенос фигуры, которой нет в отряде", "api_admin_move_figure", A, q4, qb, fig["Ладья-В1"], None, contains="Фигуры нет в отряде")
+expect("…и в журнале пустой записи нет", sql("select count(*) from events where kind='figure_move'")[0][0] == n_ev)
+expect_err("перенос в отряд другой игры", "api_admin_move_figure", A, qb, pkl, fig["Б-пешка"], None, contains="разных игр")
+expect_err("перенос в тот же отряд", "api_admin_move_figure", A, qb, qb, fig["Б-пешка"], None, contains="уже в этом отряде")
+b5 = expect_ok("ведущий открывает бой (без трекера ходов)", "api_battle_open", A, q4, qb)
+expect_ok("Боре +2 Ресурса на Лечение", "api_admin_resources", A, 3, 2, None)
+r0 = sql("select resources from players where id=3")[0][0]
+expect_ok("Боря: Лечение (1 Р.)", "api_property_use", BORYA, qb, fig["Б-лекарь"], "Лечение", None, b5, None, None)
+step = sql("select id, cost from battle_actions where battle_id=%s and property='Лечение'", b5)
+expect("шаг Лечения записан с ценой 1, Ресурсы списаны", step and step[0][1] == 1 and sql("select resources from players where id=3")[0][0] == r0 - 1, step)
+expect_err("игрок отменяет шаг боя", "api_admin_battle_undo", BORYA, step[0][0], contains="ведущего")
+expect_ok("ведущий отменяет шаг", "api_admin_battle_undo", A, step[0][0])
+expect("шаг удалён, Ресурсы вернулись", sql("select count(*) from battle_actions where id=%s", step[0][0])[0][0] == 0
+       and sql("select resources from players where id=3")[0][0] == r0)
+expect_err("повторная отмена того же шага", "api_admin_battle_undo", A, step[0][0], contains="Нет такого шага")
+expect("…Ресурсы второй раз не вернулись", sql("select resources from players where id=3")[0][0] == r0)
+expect_ok("Лечение снова можно (фигура не считается походившей)", "api_property_use", BORYA, qb, fig["Б-лекарь"], "Лечение", None, b5, None, None)
+
+print("\nОтмена записи журнала")
+ev = sql("select max(id) from events where kind='bonus_squads'")[0][0]
+expect_err("игрок отменяет запись", "api_admin_revert", ANYA, ev, None, contains="ведущего")
+expect_ok("ведущий отменяет запись", "api_admin_revert", A, ev, "ошибся игрой")
+expect("запись помечена, отмена сама записана в журнал",
+       sql("select reverted from events where id=%s", ev)[0][0] is True
+       and sql("select count(*) from events where kind='revert' and (data->>'event')::bigint=%s", ev)[0][0] == 1)
+expect("отмена только помечает: бонус не изменился", sql("select bonus_squads from players where id=2")[0][0] == 1)
+
+print("\nПередать ход вручную")
+expect_err("передать ход, когда ходов не было", "api_admin_turn_set", A, g4, s_bor, None, None, contains="Ходов ещё не было")
+expect_err("игрок двигает указатель", "api_admin_turn_set", ANYA, g3, sid["аня"], None, None, contains="ведущего")
+expect_ok("ведущий: ходит Боря, такт 1, действия", "api_admin_turn_set", A, g3, sid["боря"], 1, "actions")
+expect_ptr("указатель на Боре", "боря", 1)
+expect_ok("ведущий: только сменить стратега (такт и фаза прежние)", "api_admin_turn_set", A, g3, sid["пара"], None, None)
+expect_ptr("указатель на паре, такт 1", "пара", 1)
+expect("фаза осталась «действия»", pointer()[2] == "actions", pointer())
+expect_err("указатель на стратега из другой игры", "api_admin_turn_set", A, g3, s_bor, None, None, contains="не участвует в игре")
+expect_ptr("указатель не сдвинулся", "пара", 1)
+
+print("\nМиграция 005 на старой базе")
+cur.execute("update squad_figures set borrowed = true where figure_id=%s and game_id=%s", (fig["Ферзь-1"], g4))  # «застрявшая» пометка
+mig = (pathlib.Path(__file__).parent / "migrations" / "005_admin_checks.sql").read_text(encoding="utf-8")
+try:
+    cur.execute(mig); res = cur.fetchone()
+    expect("миграция выполняется повторно без ошибок, строка «ok»", res == ("ok",), res)
+except Exception as e:
+    expect("миграция выполняется повторно без ошибок", False, str(e).splitlines()[0])
+expect("починка сняла «взята» у фигуры владельца", sql("select borrowed from squad_figures where figure_id=%s and game_id=%s", fig["Ферзь-1"], g4) == [(False,)])
+expect("…а у фигуры, взятой у противника, оставила",
+       sql("select borrowed from squad_figures where figure_id=%s and game_id=%s", fig["Пешка-запас"], g4) == [(True,)])
+
 print("\nЖурнал:", sql("select count(*) from events")[0][0], "записей; конфликты:", sql("select count(*) from figure_conflicts")[0][0])
 print(f"\nИтого: {ok} ✓, {fail} ✗")
 sys.exit(1 if fail else 0)
