@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+# личные коды никогда не кладутся в репозиторий (они в ~/.config/taktichka/)
+codes*.csv
+codes*.sql

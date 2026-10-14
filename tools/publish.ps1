@@ -1,0 +1,70 @@
+﻿# Публикует сайт «Тактичка онлайн» (эта папка, Desktop\taktichka-live) в публичный репозиторий
+# sairaila-cmd/taktichka-live → https://sairaila-cmd.github.io/taktichka-live/
+# Вход в GitHub — через уже авторизованный gh. Публикуются только пути из списка $paths.
+#
+#   powershell -File tools\publish.ps1 -Check                    # что уйдёт на GitHub, ничего не отправляя
+#   powershell -File tools\publish.ps1 -Message "Что изменено"   # опубликовать
+# Файл сохранён в UTF-8 с BOM — иначе Windows PowerShell 5.1 ломает кириллицу.
+
+param(
+    [string]$Message = "Обновление сайта",
+    [switch]$Check
+)
+$ErrorActionPreference = "Stop"
+
+$site  = Split-Path -Parent $PSScriptRoot
+$repo  = "sairaila-cmd/taktichka-live"
+$paths = @("index.html", "README.md", ".gitignore", ".gitattributes", "css", "js", "img", "supabase", "tools", "tests")
+
+if (-not (Test-Path (Join-Path $site ".git"))) {
+    git -C $site init --quiet -b main
+    if ($LASTEXITCODE) { throw "git init не удался" }
+}
+git -C $site config user.name "sairaila-cmd"
+git -C $site config user.email "342123712+sairaila-cmd@users.noreply.github.com"
+
+git -C $site add -- $paths
+if ($LASTEXITCODE) { throw "git add не удался" }
+
+# Страховка: личные коды и закрытые ключи не должны попасть в репозиторий.
+$staged = git -C $site diff --cached --name-only
+$bad = $staged | Where-Object { $_ -match '(^|/)codes[^/]*\.(csv|sql)$' }
+$bad += git -C $site grep --cached -l -e "service_role" -- $paths ":!tools/publish.ps1" 2>$null
+if ($bad) { git -C $site reset --quiet; throw "Остановлено: в публикацию попали секретные файлы: $($bad -join ', ')" }
+
+git -C $site diff --cached --quiet
+if (-not $LASTEXITCODE) { Write-Output "Изменений нет: на GitHub та же версия."; exit 0 }
+
+git -C $site diff --cached --stat
+if ($Check) {
+    git -C $site reset --quiet
+    Write-Output "Проверка: изменения выше НЕ опубликованы."
+    exit 0
+}
+
+$msg = "$Message`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C $site commit --quiet -m $msg
+if ($LASTEXITCODE) { throw "git commit не удался" }
+
+$remote = git -C $site remote
+if (-not $remote) {
+    gh repo view $repo --json name 2>$null | Out-Null
+    if ($LASTEXITCODE) {
+        gh repo create $repo --public --description "Тактичка онлайн: учёт фигур, отрядов и боёв" | Out-Null
+        if ($LASTEXITCODE) { throw "Не удалось создать репозиторий $repo" }
+    }
+    git -C $site remote add origin "https://github.com/$repo.git"
+}
+git -C $site push --quiet -u origin main
+if ($LASTEXITCODE) { throw "Не удалось отправить коммит (git push)" }
+git -C $site log --oneline -1
+
+# GitHub Pages: включить один раз (ветка main, корень).
+$ErrorActionPreference = "Continue"
+gh api "repos/$repo/pages" 2>$null | Out-Null
+if ($LASTEXITCODE) {
+    gh api -X POST "repos/$repo/pages" -f "source[branch]=main" -f "source[path]=/" | Out-Null
+    if ($LASTEXITCODE) { Write-Output "Pages не включились автоматически: Settings → Pages → Branch: main, / (root)." }
+    else { Write-Output "GitHub Pages включены." }
+}
+Write-Output "Опубликовано: https://sairaila-cmd.github.io/taktichka-live/ (обновится через 1-2 минуты)"
