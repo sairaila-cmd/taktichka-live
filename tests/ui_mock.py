@@ -16,7 +16,9 @@ COST = {"Натиск": None, "Добивание": 1, "Лечение": 1, "В�
 
 players = [{"id": 1, "name": "Ведущий", "characters": [], "is_admin": True, "resources": 0, "bonus_squads": 0},
            {"id": 2, "name": "Зои", "characters": ["Зои"], "is_admin": False, "resources": 3, "bonus_squads": 0},
-           {"id": 3, "name": "Ратбургер", "characters": ["Ратбургер"], "is_admin": False, "resources": 2, "bonus_squads": 1}]
+           {"id": 3, "name": "Ратбургер", "characters": ["Ратбургер"], "is_admin": False, "resources": 0, "bonus_squads": 1},
+           {"id": 4, "name": "Любомир", "characters": ["Любомир"], "is_admin": False, "resources": 0, "bonus_squads": 2},
+           {"id": 5, "name": "Самум", "characters": ["Самум"], "is_admin": False, "resources": 7, "bonus_squads": 0}]
 def fig(i, name, nom, s, l, prop): return {"id": i, "name": name, "nominal": nom, "s": s, "l": l, "v": 1, "properties": [prop],
     "owner_label": "", "sources": "", "status": "active"}
 figures = [fig(11, "Ладья-натиск", "ладья", 5, 3, "Натиск"), fig(12, "Пешка-добивание", "пешка", 1, 2, "Добивание"),
@@ -33,8 +35,9 @@ T = {
     "games": [{"id": 1, "title": "Пять ликов одной Луны", "starts_at": "2026-10-20T16:00:00Z", "status": "running"}],
     "game_gifts": [{"game_id": 1, "gift": g} for g in ("alaya", "belaya", "chernaya", "gorkaya")],
     "strategists": [{"id": 1, "game_id": 1, "wallet": None, "invited": None, "initiative": 10},
-                    {"id": 2, "game_id": 1, "wallet": None, "invited": None, "initiative": 4}],
-    "strategist_members": [{"strategist_id": 1, "game_id": 1, "player_id": 2}, {"strategist_id": 2, "game_id": 1, "player_id": 3}],
+                    {"id": 2, "game_id": 1, "wallet": 6, "invited": None, "initiative": 4}],
+    "strategist_members": [{"strategist_id": 1, "game_id": 1, "player_id": 2}, {"strategist_id": 2, "game_id": 1, "player_id": 3},
+                           {"strategist_id": 2, "game_id": 1, "player_id": 4}],
     "squads": [{"id": 1, "game_id": 1, "strategist_id": 1, "name": "Волки", "name_key": "волки", "destroyed": False, "dead_figure": None, "rage": 1},
                {"id": 2, "game_id": 1, "strategist_id": 2, "name": "Совы", "name_key": "совы", "destroyed": False, "dead_figure": None, "rage": 0, "echo_id": 1},
                {"id": 3, "game_id": 1, "strategist_id": 2, "name": "Запас", "name_key": "запас", "destroyed": False, "dead_figure": None, "rage": 0},
@@ -251,6 +254,15 @@ with sync_playwright() as p:
     page.wait_for_selector("text=Статистика игры", timeout=20000)
     check("кнопка ведёт на страницу игры", page.evaluate("location.hash") == "#/game/1")
     T["battles"][0].update(status="open", winner=None, result=None)
+    print("\nПерсонажи — по текущей игре")
+    page.goto(BASE + "#/people")
+    page.wait_for_selector("text=Стратеги и Ресурсы", timeout=20000)
+    rows_ = page.locator("section.card:has(h2:has-text('Стратеги и Ресурсы')) tbody tr").all_inner_texts()
+    check("две строки стратегов, пара одной строкой", len(rows_) == 2 and any(r.startswith("Ратбургер и Любомир") for r in rows_), rows_)
+    pair = next((r for r in rows_ if r.startswith("Ратбургер и Любомир")), "")
+    cells = [c.strip() for c in pair.split("\t")]
+    check("у пары — общий кошелёк 6, 3 отряда, 4 фигуры, доп. отряды по большему (2)", cells[1:5] == ["6 общий кошелёк", "3", "4", "2"], cells)
+    check("не участвующие — в свёрнутом блоке (Самум)", "Не участвуют в этой игре (1)" in page.locator("#view").inner_text())
     print("\nТелефон")
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(BASE + "#/game/1")

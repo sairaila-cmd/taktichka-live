@@ -45,6 +45,7 @@ with sync_playwright() as p:
     if SHOTS: page.screenshot(path=str(SHOTS / "figure-card.png"))
     page.keyboard.press("Escape")
     visit("#/people", "people")
+    print("    лишний текст «null»:", "есть" if "\nnull\n" in "\n" + page.locator("#view").inner_text() + "\n" else "нет")
     print("    столбец «Другие имена»:", "есть" if "Другие имена" in page.locator("#view").inner_text() else "убран")
     visit("#/games", "games")
     visit("#/rules", "rules")

@@ -1,7 +1,7 @@
 // Раздел ведущего: игры, конфликты совладения, отмена записей журнала, памятка.
-import { rows, call, isAdmin } from '../api.js?v=202610142332';
-import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610142332';
-import { describe } from './common.js?v=202610142332';
+import { rows, call, isAdmin } from '../api.js?v=202610150001';
+import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610150001';
+import { describe } from './common.js?v=202610150001';
 
 export default async function adminView(root) {
   if (!isAdmin()) {

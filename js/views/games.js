@@ -1,6 +1,6 @@
 // Список игр; ведущий создаёт новую.
-import { rows, call, isAdmin } from '../api.js?v=202610142332';
-import { h, btn, modal, form, act, fmtTime, STATUS_RU, GIFT_RU, plural } from '../ui.js?v=202610142332';
+import { rows, call, isAdmin } from '../api.js?v=202610150001';
+import { h, btn, modal, form, act, fmtTime, STATUS_RU, GIFT_RU, plural } from '../ui.js?v=202610150001';
 
 export default async function gamesView(root) {
   const [games, strategists, gifts] = await Promise.all([
