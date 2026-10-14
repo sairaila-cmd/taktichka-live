@@ -22,7 +22,7 @@ export function describe(ev, maps = {}) {
     case 'figure_move': return 'Фигура ' + F + ' перешла в отряд ' + sq(d.to);
     case 'figure_death': return 'Гибель фигуры ' + F + ' (' + (d.how || '') + ')';
     case 'resources_transfer': return 'Передача ' + res(ev.amount) + ': ' + pname(d.from) + ' → ' + pname(d.to);
-    case 'resources_grant': return (ev.amount >= 0 ? 'Начислено ' : 'Списано ') + res(ev.amount) + ' — ' + pname(ev.player_id);
+    case 'resources_grant': return (ev.amount >= 0 ? 'Начислено ' : 'Списано ') + res(ev.amount) + ' — ' + pname(ev.player_id) + (d.wallet ? ' (в общий кошелёк пары)' : '');
     case 'resources_spend': return 'Потрачено ' + res(ev.amount) + (ev.squad_id ? ' (отряд ' + sq(ev.squad_id) + ')' : '');
     case 'resources_gain': return 'Получено ' + res(ev.amount) + (ev.squad_id ? ' (отряд ' + sq(ev.squad_id) + ')' : '');
     case 'bonus_squads': return 'Доп. отряды за Влияние: ' + pname(ev.player_id) + ' — ' + ev.amount;
@@ -31,7 +31,7 @@ export function describe(ev, maps = {}) {
     case 'game_closed': return 'Игра «' + (d.title || '') + '» закончена';
     case 'join_game': return pname(ev.player_id) + ' участвует в игре';
     case 'partner_invite': return 'Приглашение в напарники: ' + pname(ev.player_id);
-    case 'pair': return 'Напарники: ' + (d.players || []).map(pname).join(' и ') + ' — общий кошелёк ' + res(ev.amount);
+    case 'pair': return (ev.actor ? 'Напарники: ' : 'В общий кошелёк перенесено (починка): ') + (d.players || []).map(pname).join(' и ') + ' — ' + res(ev.amount);
     case 'wallet_split': return 'Раздел общего кошелька: ' + Object.entries(d).map(([p, n]) => pname(Number(p)) + ' ' + n).join(', ');
     case 'squad_save': return 'Отряд «' + (d.name || '') + '» собран (' + plural((d.figures || []).length, 'фигура', 'фигуры', 'фигур') + ')';
     case 'squad_delete': return 'Отряд «' + (d.name || '') + '» распущен';
@@ -56,7 +56,9 @@ export function describe(ev, maps = {}) {
     case 'turn_set': return 'Ведущий передвинул указатель хода';
     case 'turn_pass': return 'Ход передан дальше';
     case 'intrigue': return 'Интрига (' + st(d.strategist) + ')';
-    case 'squad_move': return 'Отряд ' + sq(ev.squad_id) + ': ' + (d.action || 'ход') + (d.tact > 1 ? ' (такт ' + d.tact + ')' : '');
+    case 'squad_move': return 'Отряд ' + sq(ev.squad_id) + ': ' + (d.action || 'ход') + (d.finished ? ' — ход закончен' : '') + (d.tact > 1 ? ' (такт ' + d.tact + ')' : '');
+    case 'squad_echo': return 'Отряд ' + sq(ev.squad_id) + ': ' + ({ passed: 'прошёл через', stopped: 'остановился в', left: 'вышел из' }[d.mode] || d.mode) +
+      (d.name ? ' Эхо «' + d.name + '»' : ' Эхо') + (ev.amount ? ' (−' + res(ev.amount) + ')' : '');
     case 'rage_spend': return 'Ярость отряда ' + sq(ev.squad_id) + ': ' + ({ move: '+1 к перемещению', power: '+5 к Силе', remote: 'фишка издалека' }[d.use] || d.use);
     case 'rage_set': return 'Ярость отряда ' + sq(ev.squad_id) + ' = ' + ev.amount;
     case 'echo': return d.name ? 'Эхо «' + d.name + '»: ' + ({ open: 'открыто', active: 'действует', ended: 'закончилось' }[d.status] || d.status) : 'Ведущий изменил скрытое Эхо';
@@ -89,7 +91,9 @@ export function squadCard(sq, o, actions) {
   const gifts = o.gifts || new Set();
   const tags = [];
   if (sq.destroyed) tags.push(h('span', { class: 'badge bad' }, 'уничтожен'));
-  if (o.moved) tags.push(h('span', { class: 'badge info' }, 'ходил: ' + o.moved));
+  if (o.inBattle) tags.push(h('span', { class: 'badge bad' }, 'в бою'));
+  if (o.echo) tags.push(h('span', { class: 'badge warn', title: 'Отряд стоит в Эхо: его правила действуют на этот отряд' }, 'в Эхо «' + o.echo + '»'));
+  if (o.moved) tags.push(h('span', { class: 'badge info' }, 'ход: ' + o.moved));
   if (gifts.has('alaya') && sq.rage) tags.push(h('span', { class: 'badge bad', title: 'Алая луна' }, 'Ярость ' + sq.rage));
   if (gifts.has('belaya') && o.moon && o.moon.white_streak) tags.push(h('span', { class: 'badge moon', title: 'Белая луна: +2 к Силе, +1 действие в событиях' }, '☾ три номинала подряд'));
   if (gifts.has('belaya') && o.moon && o.moon.duplicate_nominals > 0) tags.push(h('span', { class: 'badge warn', title: 'Белая луна: штраф к Лояльности при попытке переманить' }, 'повторы номиналов: ' + o.moon.duplicate_nominals));

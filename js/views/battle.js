@@ -41,7 +41,8 @@ export default async function battleView(root, battleId) {
       h('div', { class: 'row', style: 'justify-content:center' },
         open ? badge('бой идёт · фаза: ' + r.phase, 'ok') : badge('бой окончен'),
         [...d.gifts].map((g) => badge('☾ ' + GIFT_RU[g].split(' — ')[0], 'moon')),
-        d.echoBlocked.length ? badge('Эхо: не работают ' + d.echoBlocked.join(', '), 'bad') : null),
+        ['attacker', 'defender'].map((s) => d.echoOf(s) ? badge('«' + d.sq[s].name + '» в Эхо «' + d.echoOf(s).name + '»' +
+          ((d.echoOf(s).blocked_properties || []).length ? ': не работают ' + d.echoOf(s).blocked_properties.join(', ') : ''), 'bad') : null)),
       h('div', { class: 'versus' }, sidePanel('attacker'), h('div', { class: 'vs' }, '⚔'), sidePanel('defender')),
       open ? needCard() : resultCard(),
       queueCard(),
@@ -267,7 +268,9 @@ async function load(battleId) {
   const figById = Object.fromEntries(figures.map((f) => [f.id, f]));
   const sq = { attacker: squads.find((s) => s.id === battle.attacker), defender: squads.find((s) => s.id === battle.defender) };
   const gifts2 = new Set(gifts.map((g) => g.gift));
-  const echoBlocked = [...new Set(echoes.flatMap((e) => e.blocked_properties || []))];
+  // Эхо — зона: запреты действуют только на отряд, который стоит в действующем Эхо.
+  const echoOf = (s) => echoes.find((e) => e.id === sq[s].echo_id) || null;
+  const echoBlocked = [];
   const figs = {}, trophiesBy = {}, membersBy = {}, label = {};
   ['attacker', 'defender'].forEach((side) => {
     figs[side] = sfs.filter((x) => x.squad_id === sq[side].id && figById[x.figure_id])
@@ -279,13 +282,14 @@ async function load(battleId) {
   const moonBy = Object.fromEntries(moon.map((m) => [m.squad_id, m]));
   const side = (s) => ({
     squad_id: sq[s].id, name: sq[s].name, rage: sq[s].rage, figures: figs[s],
+    echoBlocked: echoOf(s) ? echoOf(s).blocked_properties || [] : [], echoName: echoOf(s) ? echoOf(s).name : null,
     trophies_s: trophiesBy[s].reduce((n, t) => n + (t.bonus_s || 0), 0),
     white_streak: !!(moonBy[sq[s].id] && moonBy[sq[s].id].white_streak),
   });
   const properties = Object.fromEntries(cache.properties.map((p) => [p.name, { phase: p.phase, cost: p.cost }]));
   const result = window.Battle.compute({ attacker: side('attacker'), defender: side('defender'), actions, gifts: [...gifts2], echoBlocked, properties });
   return {
-    battle, game: games[0], sq, figs, figById, actions, gifts: gifts2, echoBlocked, result,
+    battle, game: games[0], sq, figs, figById, actions, gifts: gifts2, echoOf, result,
     trophies: trophiesBy, members: membersBy, label,
     actionsTook: takes.some((e) => e.data && Number(e.data.battle) === battleId && !e.reverted),
   };

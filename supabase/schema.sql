@@ -387,27 +387,84 @@ end $$;
 
 -- ───────────────────────── API: ресурсы ─────────────────────────
 
+-- Общий кошелёк пары, в которой игрок состоит в незакрытой игре (null — играет один или не играет).
+-- Пока пара играет, все Ресурсы участников идут через этот кошелёк.
+create or replace function open_wallet(p_player int) returns int
+language sql stable as $$
+  select s.id from strategist_members m
+    join strategists s on s.id = m.strategist_id
+    join games g on g.id = s.game_id
+  where m.player_id = p_player and s.wallet is not null and g.status <> 'closed'
+  order by g.id desc limit 1
+$$;
+
+-- Сколько Ресурсов у игрока сейчас (у пары — общий кошелёк).
+create or replace function balance_of(p_player int) returns int
+language sql stable as $$
+  select coalesce((select wallet from strategists where id = open_wallet(p_player)),
+                  (select resources from players where id = p_player))
+$$;
+
+-- Изменить Ресурсы игрока (или общий кошелёк его пары); в минус нельзя.
+create or replace function add_resources(p_player int, p_amount int) returns int
+language plpgsql security definer set search_path = public as $$
+declare w int := open_wallet(p_player); have int := balance_of(p_player);
+begin
+  if have + p_amount < 0 then
+    raise exception 'Не хватает Ресурсов (есть %)', have || case when w is null then '' else ' в общем кошельке пары' end;
+  end if;
+  if w is not null then update strategists set wallet = wallet + p_amount where id = w;
+  else update players set resources = resources + p_amount where id = p_player; end if;
+  return w;
+end $$;
+
+-- Починка 14.10.2026: Ресурсы, начисленные участникам пары после её оформления, легли на личные
+-- балансы. Переносит их в общий кошелёк (для пар в незакрытых играх). Возвращает число пар.
+create or replace function fix_pair_wallets() returns int
+language plpgsql security definer set search_path = public as $$
+declare r record; n int := 0;
+begin
+  for r in
+    select s.id sid, s.game_id, array_agg(p.id) members, sum(p.resources)::int total
+    from strategists s join games g on g.id = s.game_id
+      join strategist_members m on m.strategist_id = s.id join players p on p.id = m.player_id
+    where s.wallet is not null and g.status <> 'closed'
+    group by s.id, s.game_id having sum(p.resources) > 0
+  loop
+    update strategists set wallet = wallet + r.total where id = r.sid;
+    update players set resources = 0 where id = any(r.members);
+    perform log_event(null, 'pair', r.game_id, null, null, null, r.total,
+      jsonb_build_object('players', to_jsonb(r.members), 'strategist', r.sid),
+      'Ресурсы, начисленные после оформления пары, перенесены в общий кошелёк');
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
 create or replace function api_resources_transfer(p_code text, p_to int, p_amount int, p_comment text)
 returns void
 language plpgsql security definer set search_path = public as $$
-declare me players := auth(p_code);
+declare me players := auth(p_code); wf int; wt int;
 begin
   if p_amount is null or p_amount <= 0 then raise exception 'Сумма должна быть больше нуля'; end if;
   if p_to = me.id then raise exception 'Нельзя передать самому себе'; end if;
-  if me.resources < p_amount then raise exception 'Не хватает Ресурсов (есть %)', me.resources; end if;
-  update players set resources = resources - p_amount where id = me.id;
-  update players set resources = resources + p_amount where id = p_to;
+  if open_wallet(me.id) is not null and open_wallet(me.id) = open_wallet(p_to) then
+    raise exception 'Вы напарники: Ресурсы и так общие';
+  end if;
+  wf := add_resources(me.id, -p_amount);
+  wt := add_resources(p_to, p_amount);
   perform log_event(me.id, 'resources_transfer', null, null, null, p_to, p_amount,
-    jsonb_build_object('from', me.id, 'to', p_to), p_comment);
+    jsonb_build_object('from', me.id, 'to', p_to, 'from_wallet', wf, 'to_wallet', wt), p_comment);
 end $$;
 
 create or replace function api_admin_resources(p_code text, p_player int, p_amount int, p_comment text)
 returns void
 language plpgsql security definer set search_path = public as $$
-declare me players := auth_admin(p_code);
+declare me players := auth_admin(p_code); w int;
 begin
-  update players set resources = resources + p_amount where id = p_player;
-  perform log_event(me.id, 'resources_grant', null, null, null, p_player, p_amount, '{}', p_comment);
+  w := add_resources(p_player, p_amount);
+  perform log_event(me.id, 'resources_grant', null, null, null, p_player, p_amount,
+    jsonb_build_object('wallet', w), p_comment);
 end $$;
 
 create or replace function api_admin_bonus(p_code text, p_player int, p_bonus int, p_comment text)
@@ -562,8 +619,23 @@ end $$;
 -- ───────────────────────── API: отряды ─────────────────────────
 
 -- Создать или пересобрать отряд до старта игры (админ — в любой момент).
-create or replace function api_squad_save(p_code text, p_game int, p_squad int, p_name text, p_figures int[])
-returns int
+-- Ведущий добавляет персонажа в игру (создаёт ему стратега), чтобы собрать за него отряды.
+create or replace function api_admin_join(p_code text, p_game int, p_player int) returns int
+language plpgsql security definer set search_path = public as $$
+declare me players := auth_admin(p_code); sid int := strategist_of(p_player, p_game);
+begin
+  if sid is not null then return sid; end if;
+  insert into strategists (game_id) values (p_game) returning id into sid;
+  insert into strategist_members values (sid, p_game, p_player);
+  perform log_event(me.id, 'join_game', p_game, null, null, p_player, null, '{}', 'добавил ведущий');
+  return sid;
+end $$;
+
+-- Создать или пересобрать отряд. Игрок — только свой и до старта игры; ведущий — за любого
+-- стратега (p_strategist) и в любой момент. Лимиты действуют для всех. При правке фигуры,
+-- оставшиеся в отряде, сохраняют состояние (повреждена, в отбое) и отметку «взята у противника».
+create or replace function api_squad_save(p_code text, p_game int, p_squad int, p_name text, p_figures int[],
+  p_strategist int) returns int
 language plpgsql security definer set search_path = public as $$
 declare me players := auth(p_code); sid int; sq int := p_squad; f int; owners int[];
 begin
@@ -578,6 +650,14 @@ begin
   end if;
   if sq is not null then
     sid := (require_strategist(me, sq)).strategist_id;
+  elsif p_strategist is not null then
+    if not me.is_admin and strategist_of(me.id, p_game) is distinct from p_strategist then
+      raise exception 'Собирать отряды за другого стратега может только ведущий';
+    end if;
+    if (select game_id from strategists where id = p_strategist) is distinct from p_game then
+      raise exception 'Стратег не из этой игры';
+    end if;
+    sid := p_strategist;
   else
     sid := api_join_game(p_code, p_game);
   end if;
@@ -594,10 +674,13 @@ begin
     insert into squads (game_id, strategist_id, name) values (p_game, sid, p_name) returning id into sq;
   else
     update squads set name = p_name where id = sq;
-    delete from squad_figures where squad_id = sq;
+    delete from squad_figures where squad_id = sq and not (figure_id = any(coalesce(p_figures, '{}')));
   end if;
   insert into squad_figures (squad_id, figure_id, game_id, strategist_id)
-    select sq, x, p_game, sid from unnest(p_figures) x;
+    select sq, x, p_game, sid from unnest(p_figures) x
+    where not exists (select 1 from squad_figures where squad_id = sq and figure_id = x);
+  update squads set destroyed = not exists (select 1 from squad_figures where squad_id = sq and state = 'ok')
+    where id = sq;
   perform check_strategist_squads(sid);
   perform log_event(me.id, 'squad_save', p_game, null, sq, null, null,
     jsonb_build_object('name', p_name, 'figures', p_figures), null);
@@ -626,6 +709,8 @@ declare me players := auth(p_code); a squads := require_strategist(me, p_a); b s
 begin
   if a.strategist_id <> b.strategist_id then raise exception 'Обмен только между своими отрядами'; end if;
   if (select status from games where id = a.game_id) <> 'running' then raise exception 'Игра не идёт'; end if;
+  -- Обмен — действие отряда, который его начал: его ход на этом заканчивается (второй ходит дальше).
+  perform squad_act(p_a, 'Обмен', me);
   select array_agg(figure_id order by figure_id) into before_f from squad_figures where squad_id in (p_a, p_b);
   select array_agg(x order by x) into after_f from unnest(coalesce(p_a_figures,'{}') || coalesce(p_b_figures,'{}')) x;
   if before_f is distinct from after_f then raise exception 'Обмен не может добавлять или убирать фигуры'; end if;
@@ -721,7 +806,7 @@ begin
   end if;
   select * into pr from properties where name = p_property;
   if not found then raise exception 'Нет свойства «%» в справочнике', p_property; end if;
-  perform check_echo_blocks(s.game_id, p_property);
+  perform check_echo_blocks(p_squad, p_property);
   cost := coalesce(pr.cost, p_cost, 0);
   if pr.cost is null and p_cost is null then raise exception 'Укажите, сколько Ресурсов тратится'; end if;
   if p_property = 'Натиск' and cost not between 1 and 3 then raise exception 'Натиск: от 1 до 3 Ресурсов'; end if;
@@ -782,6 +867,11 @@ begin
   if d.game_id <> a.game_id then raise exception 'Отряды из разных игр'; end if;
   if d.strategist_id = a.strategist_id then raise exception 'Нельзя напасть на свой отряд'; end if;
   if (select status from games where id = a.game_id) <> 'running' then raise exception 'Игра не идёт'; end if;
+  if exists (select 1 from battles where status = 'open' and (attacker in (p_attacker, p_defender) or defender in (p_attacker, p_defender))) then
+    raise exception 'Один из отрядов уже в бою';
+  end if;
+  -- Нападение — действие отряда: после него ход отряда заканчивается.
+  perform squad_act(p_attacker, 'Нападение', me);
   insert into battles (game_id, attacker, defender, opened_by) values (a.game_id, p_attacker, p_defender, me.id)
   returning id into bid;
   perform log_event(me.id, 'battle_open', a.game_id, null, p_attacker, null, null,
@@ -886,6 +976,9 @@ begin
   select * into t from trophies where id = p_trophy;
   if t.status <> 'active' then raise exception 'Трофей не в отряде'; end if;
   s := require_strategist(me, t.squad_id);
+  if exists (select 1 from battles where status = 'open' and t.squad_id in (attacker, defender)) then
+    raise exception 'Во время боя трофей выкинуть нельзя';
+  end if;
   update trophies set status = 'gone', squad_id = null where id = p_trophy;
   perform log_event(me.id, 'trophy_drop', s.game_id, null, s.id, null, null,
     jsonb_build_object('trophy', p_trophy, 'name', t.name), null);
@@ -1018,7 +1111,9 @@ create table squad_moves (
   squad_id      int not null references squads(id) on delete cascade,
   strategist_id int not null references strategists(id) on delete cascade,
   tact          int not null,
-  action        text not null,
+  action        text not null,   -- для показа: «Перемещение → Нападение»
+  movement      text,            -- Перемещение | Стоит на месте (ход ещё не закончен)
+  act           text,            -- Нападение | Обмен | Активация фишки | Стоит на месте — ход закончен
   created_at    timestamptz not null default now(),
   primary key (turn_id, squad_id)
 );
@@ -1046,6 +1141,9 @@ begin
 end $$;
 alter table echoes enable row level security;   -- без политики: напрямую не читается
 
+-- Эхо занимает часть карты: в каком Эхо отряд стоит сейчас (его запреты действуют только на этот отряд).
+alter table squads add column echo_id int references echoes(id) on delete set null;
+
 create view echoes_public as
   select id, game_id, name, description, status, end_condition, blocked_properties, move_cost
   from echoes where status <> 'hidden';
@@ -1071,10 +1169,18 @@ language sql stable as $$
 $$;
 
 -- Порядок хода: по убыванию инициативы (без инициативы — в конце).
+-- Порядок хода: по убыванию инициативы. Чёрная луна: места 1–3 — только стратегам с 1–2 отрядами
+-- (по инициативе); стратеги с 3+ отрядами и все, кто не вошёл в тройку, — дальше, по инициативе.
 create or replace function turn_order(p_game int) returns table (strategist_id int, pos int)
 language sql stable as $$
-  select id, (row_number() over (order by initiative desc nulls last, id))::int
-  from strategists where game_id = p_game
+  with base as (
+    select s.id, (select count(*) from squads q where q.strategist_id = s.id) n,
+      row_number() over (order by s.initiative desc nulls last, s.id) r
+    from strategists s where s.game_id = p_game),
+  top3 as (select id from base where n < 3 order by r limit 3)
+  select b.id, (row_number() over (order by
+      case when has_gift(p_game, 'chernaya') and b.id not in (select id from top3) then 1 else 0 end, b.r))::int
+  from base b
 $$;
 
 create or replace function strategist_label(p_strategist int) returns text
@@ -1083,21 +1189,12 @@ language sql stable as $$
   from strategist_members m join players p on p.id = m.player_id where m.strategist_id = p_strategist
 $$;
 
--- Чёрная луна: у кого 3+ отряда, тот не может быть в первой тройке.
+-- Раньше запрещала стратегу с 3+ отрядами место в первой тройке; теперь turn_order сам ставит его
+-- после тройки (14.10.2026), поэтому проверка ничего не запрещает. Оставлена, чтобы не менять вызовы.
 create or replace function check_initiative(p_game int) returns void
-language plpgsql security definer set search_path = public as $$
-declare bad record;
+language plpgsql as $$
 begin
-  if not has_gift(p_game, 'chernaya') then return; end if;
-  for bad in
-    select o.strategist_id, o.pos, (select count(*) from squads where strategist_id = o.strategist_id) n
-    from turn_order(p_game) o
-    where o.pos <= 3 and (select count(*) from squads where strategist_id = o.strategist_id) >= 3
-      and (select initiative from strategists where id = o.strategist_id) is not null  -- ещё не расставлены
-  loop
-    raise exception 'Чёрная луна: у стратега «%» % отряда — он не может быть на %-м месте (только с 4-го)',
-      strategist_label(bad.strategist_id), bad.n, bad.pos;
-  end loop;
+  return;
 end $$;
 
 create or replace function current_turn(p_game int) returns turns
@@ -1105,10 +1202,11 @@ language sql stable as $$
   select * from turns where game_id = p_game order by number desc limit 1
 $$;
 
+-- Есть ли у стратега отряды, чей ход в этом ходу ещё не закончен.
 create or replace function strategist_has_unmoved(p_strategist int, p_turn int) returns boolean
 language sql stable as $$
   select exists (select 1 from squads s where s.strategist_id = p_strategist and not s.destroyed
-    and not exists (select 1 from squad_moves m where m.turn_id = p_turn and m.squad_id = s.id))
+    and not exists (select 1 from squad_moves m where m.turn_id = p_turn and m.squad_id = s.id and m.act is not null))
 $$;
 
 -- Передать ход следующему стратегу. Обычный ход: каждый по разу по инициативе.
@@ -1148,12 +1246,13 @@ begin
   update turns set current_strategist = nxt, tact = t.tact where id = p_turn;
 end $$;
 
-create or replace function check_echo_blocks(p_game int, p_property text) returns void
+-- Запрет свойства действующим Эхо — только для отряда, который стоит в этом Эхо.
+create or replace function check_echo_blocks(p_squad int, p_property text) returns void
 language plpgsql security definer set search_path = public as $$
 declare e text;
 begin
-  select name into e from echoes
-    where game_id = p_game and status = 'active' and p_property = any(blocked_properties) limit 1;
+  select e2.name into e from squads s join echoes e2 on e2.id = s.echo_id
+    where s.id = p_squad and e2.status = 'active' and p_property = any(e2.blocked_properties);
   if e is not null then
     raise exception 'Действует Эхо «%»: свойство «%» здесь не работает', e, p_property;
   end if;
@@ -1243,28 +1342,98 @@ begin
 end $$;
 
 -- Отметить ход отряда (Перемещение, Активация фишки, Обмен, Нападение…).
+-- Ход отряда за ход игры — две части:
+--   движение: «Перемещение» или «Стоит на месте» (ход ещё не закончен);
+--   действие: «Нападение», «Обмен», «Активация фишки» или «Стоит на месте» — ход закончен.
+-- Действие можно заявить и без движения. Чёрная луна: за такт стратег действует одним отрядом;
+-- такт уходит дальше, когда ход этого отряда закончен.
+create or replace function squad_turn_step(p_squad int, p_kind text, p_value text, p_actor players, p_comment text)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare s squads; t turns; m squad_moves; chern boolean; other text; done boolean;
+begin
+  select * into s from squads where id = p_squad;
+  t := current_turn(s.game_id);
+  if t.id is null or t.phase <> 'actions' then
+    if p_kind = 'act' and p_value in ('Нападение', 'Обмен') then return; end if;  -- вне трекера ходов — без отметки
+    raise exception 'Сейчас не фаза действий';
+  end if;
+  if not p_actor.is_admin and t.current_strategist is distinct from s.strategist_id then
+    raise exception 'Сейчас ходит %', coalesce(strategist_label(t.current_strategist), 'другой стратег');
+  end if;
+  chern := has_gift(s.game_id, 'chernaya');
+  select * into m from squad_moves where turn_id = t.id and squad_id = p_squad;
+  if m.act is not null then raise exception 'Ход отряда «%» в этом ходу уже закончен', s.name; end if;
+  if chern and m.squad_id is null then
+    select q.name into other from squad_moves mm join squads q on q.id = mm.squad_id
+      where mm.turn_id = t.id and mm.strategist_id = s.strategist_id and mm.tact = t.tact and mm.squad_id <> p_squad limit 1;
+    if other is not null then raise exception 'Чёрная луна: в этом такте вы уже действовали отрядом «%»', other; end if;
+  end if;
+  if p_kind = 'movement' then
+    if m.movement is not null then raise exception 'Отряд «%» уже двигался в этом ходу', s.name; end if;
+    insert into squad_moves (turn_id, squad_id, strategist_id, tact, action, movement)
+    values (t.id, p_squad, s.strategist_id, t.tact, p_value, p_value)
+    on conflict (turn_id, squad_id) do update set movement = p_value, action = p_value;
+    if p_value = 'Перемещение' then update squads set echo_id = null where id = p_squad; end if;  -- ушёл из Эхо
+  else
+    insert into squad_moves (turn_id, squad_id, strategist_id, tact, action, act)
+    values (t.id, p_squad, s.strategist_id, t.tact, p_value, p_value)
+    on conflict (turn_id, squad_id) do update set act = p_value, action = concat_ws(' → ', squad_moves.movement, p_value);
+  end if;
+  done := p_kind = 'act';
+  perform log_event(p_actor.id, 'squad_move', s.game_id, null, p_squad, null, t.number,
+    jsonb_build_object('action', p_value, 'part', p_kind, 'tact', t.tact, 'finished', done), p_comment);
+  -- такт уходит дальше, когда ход отряда текущего стратега закончен
+  if chern and done and t.current_strategist = s.strategist_id then perform advance_turn(t.id); end if;
+end $$;
+
+-- Действие отряда из боя и обмена (Нападение, Обмен): ход отряда заканчивается.
+create or replace function squad_act(p_squad int, p_act text, p_actor players) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform squad_turn_step(p_squad, 'act', p_act, p_actor, null);
+end $$;
+
+-- Отметить ход отряда: «Перемещение», «Стоит на месте», «Активация фишки».
+-- «Стоит на месте»: до движения — вместо движения; после движения — вместо действия (ход закончен).
 create or replace function api_squad_move(p_code text, p_squad int, p_action text, p_comment text) returns void
 language plpgsql security definer set search_path = public as $$
 declare me players := auth(p_code); s squads := require_strategist(me, p_squad); t turns := current_turn(s.game_id);
-  chern boolean := has_gift(s.game_id, 'chernaya');
+  moved boolean;
 begin
-  if t.id is null or t.phase <> 'actions' then raise exception 'Сейчас не фаза действий'; end if;
-  if not me.is_admin and t.current_strategist is distinct from s.strategist_id then
-    raise exception 'Сейчас ходит %', coalesce(strategist_label(t.current_strategist), 'другой стратег');
+  moved := exists (select 1 from squad_moves where turn_id = t.id and squad_id = p_squad and movement is not null);
+  case p_action
+    when 'Перемещение' then perform squad_turn_step(p_squad, 'movement', p_action, me, p_comment);
+    when 'Стоит на месте' then
+      perform squad_turn_step(p_squad, case when moved then 'act' else 'movement' end, p_action, me, p_comment);
+    when 'Активация фишки' then perform squad_turn_step(p_squad, 'act', p_action, me, p_comment);
+    else raise exception 'Нападение и Обмен — своими кнопками; здесь: Перемещение, Стоит на месте, Активация фишки';
+  end case;
+end $$;
+
+-- Отряд прошёл через Эхо (разово: цена движения) или остановился в нём (эффект действует, пока не уйдёт);
+-- p_mode: passed | stopped | left. Игрок — только открытые Эхо; ведущий — любые.
+create or replace function api_squad_echo(p_code text, p_squad int, p_echo int, p_mode text) returns void
+language plpgsql security definer set search_path = public as $$
+declare me players := auth(p_code); s squads := require_strategist(me, p_squad); e echoes; cost int := 0;
+begin
+  if p_mode not in ('passed', 'stopped', 'left') then raise exception 'Неизвестная отметка Эхо'; end if;
+  if p_mode = 'left' then
+    update squads set echo_id = null where id = p_squad;
+    perform log_event(me.id, 'squad_echo', s.game_id, null, p_squad, null, null, jsonb_build_object('mode', 'left'), null);
+    return;
   end if;
-  if exists (select 1 from squad_moves where turn_id = t.id and squad_id = p_squad) then
-    raise exception 'Отряд «%» уже ходил в этом ходу', s.name;
+  select * into e from echoes where id = p_echo;
+  if e.id is null or e.game_id <> s.game_id then raise exception 'Нет такого Эхо в этой игре'; end if;
+  if not me.is_admin and e.status not in ('open', 'active') then raise exception 'Это Эхо ещё не обнаружено'; end if;
+  if e.status = 'active' and e.move_cost > 0 then
+    cost := e.move_cost;
+    perform strategist_pay(s.strategist_id, cost, me.id, 'Эхо: движение', s.game_id, null, p_squad);
   end if;
-  if chern and exists (select 1 from squad_moves where turn_id = t.id and strategist_id = s.strategist_id
-                       and tact = t.tact) then
-    raise exception 'Чёрная луна: в этом такте вы уже действовали отрядом';
-  end if;
-  insert into squad_moves (turn_id, squad_id, strategist_id, tact, action)
-  values (t.id, p_squad, s.strategist_id, t.tact, p_action);
-  perform log_event(me.id, 'squad_move', s.game_id, null, p_squad, null, t.number,
-    jsonb_build_object('action', p_action, 'tact', t.tact), p_comment);
-  -- такт: одним отрядом — и ход дальше (если ведущий отметил ход не текущего стратега — указатель не трогаем)
-  if chern and t.current_strategist = s.strategist_id then perform advance_turn(t.id); end if;
+  if p_mode = 'stopped' then update squads set echo_id = p_echo where id = p_squad; end if;
+  perform log_event(me.id, 'squad_echo', s.game_id, null, p_squad, null, cost,
+    case when e.status = 'hidden' then jsonb_build_object('mode', p_mode)
+         else jsonb_build_object('mode', p_mode, 'echo', e.id, 'name', e.name) end, null);
 end $$;
 
 -- Закончить свой ход (обычный режим) или пропустить такт.

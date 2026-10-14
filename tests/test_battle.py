@@ -129,6 +129,15 @@ check("Провокация: базовая Сила защитника 0", r["s
 r = duel(["Мобильность"], ["Мобильность"], 2, 2, extra=[act("rage", 1, params={"use": "power"})])
 check("Ярость +5 к Силе", r["strength"]["attacker"]["total"] == 10)
 
+print("\nЭхо — только отряд внутри")
+A4 = {"squad_id": 1, "name": "А", "echoBlocked": ["Плен"], "echoName": "Святилище", "figures": [fig(71, "А1", "ладья", 5, 1, "Плен")]}
+D4 = {"squad_id": 2, "name": "Д", "figures": [fig(81, "Д1", "ладья", 1, 1, "Плен")]}
+r = compute({"attacker": A4, "defender": D4, "actions": [], "gifts": [], "echoBlocked": []})
+ea = next(e for e in r["entries"] if e["key"] == "71:Условие")
+ed = next(e for e in r["entries"] if e["key"] == "81:Условие")
+check("в Святилище: Плен у отряда внутри недоступен", ea["status"] == "unavailable" and "Святилище" in ea["reason"], ea.get("reason"))
+check("снаружи: Плен у противника доступен", ed["status"] in ("current", "waiting") or any(o["available"] for o in ed.get("options") or []), ed)
+
 print("\nОчередь: номинал → Лояльность → атакующий")
 A3 = {"squad_id": 1, "name": "А", "figures": [fig(51, "пешка А", "пешка", 1, 5, "Штурм"), fig(52, "конь А", "конь", 1, 1, "Штурм")]}
 D3 = {"squad_id": 2, "name": "Д", "figures": [fig(61, "пешка Д", "пешка", 1, 5, "Укрепление"), fig(62, "пешка Д2", "пешка", 1, 9, "Укрепление")]}

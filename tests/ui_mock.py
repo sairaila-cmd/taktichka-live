@@ -36,7 +36,7 @@ T = {
                     {"id": 2, "game_id": 1, "wallet": None, "invited": None, "initiative": 4}],
     "strategist_members": [{"strategist_id": 1, "game_id": 1, "player_id": 2}, {"strategist_id": 2, "game_id": 1, "player_id": 3}],
     "squads": [{"id": 1, "game_id": 1, "strategist_id": 1, "name": "Волки", "name_key": "волки", "destroyed": False, "dead_figure": None, "rage": 1},
-               {"id": 2, "game_id": 1, "strategist_id": 2, "name": "Совы", "name_key": "совы", "destroyed": False, "dead_figure": None, "rage": 0},
+               {"id": 2, "game_id": 1, "strategist_id": 2, "name": "Совы", "name_key": "совы", "destroyed": False, "dead_figure": None, "rage": 0, "echo_id": 1},
                {"id": 3, "game_id": 1, "strategist_id": 2, "name": "Запас", "name_key": "запас", "destroyed": False, "dead_figure": None, "rage": 0}],
     "squad_figures": [{"squad_id": 1, "figure_id": f, "game_id": 1, "strategist_id": 1, "state": "ok", "borrowed": False} for f in (11, 12, 13)] +
                      [{"squad_id": 2, "figure_id": f, "game_id": 1, "strategist_id": 2, "state": "ok", "borrowed": False} for f in (21, 22, 23)] +
@@ -47,7 +47,7 @@ T = {
     "squad_moon": [{"squad_id": 1, "game_id": 1, "white_streak": False, "duplicate_nominals": 0},
                    {"squad_id": 2, "game_id": 1, "white_streak": False, "duplicate_nominals": 0}],
     "turns": [{"id": 1, "game_id": 1, "number": 2, "phase": "actions", "tacts": 2, "tact": 1, "current_strategist": 1}],
-    "squad_moves": [{"turn_id": 1, "squad_id": 3, "strategist_id": 2, "tact": 1, "action": "Перемещение"}],
+    "squad_moves": [{"turn_id": 1, "squad_id": 3, "strategist_id": 2, "tact": 1, "action": "Перемещение", "movement": "Перемещение", "act": None}],
     "battles": [{"id": 1, "game_id": 1, "attacker": 1, "defender": 2, "status": "open", "winner": None, "result": None, "opened_by": 2, "created_at": "2026-10-20T17:00:00Z"}],
     "battle_actions": [
         {"id": 1, "battle_id": 1, "kind": "property", "squad_id": 2, "figure_id": 23, "property": "Всем друг", "params": {"phase": "Условие"}, "roll": None, "cost": 0},
@@ -90,7 +90,10 @@ def handle(route):
         fn = path[4:]
         body = json.loads(req.post_data or "{}")
         calls.append((fn, body))
-        result = {"api_whoami": {"id": 2, "name": "Зои", "characters": ["Зои"], "is_admin": False}}.get(fn)
+        admin = body.get("p_code") == "admin-test"
+        result = {"api_whoami": {"id": 1, "name": "Ведущий", "characters": [], "is_admin": True} if admin else
+                  {"id": 2, "name": "Зои", "characters": ["Зои"], "is_admin": False},
+                  "api_admin_echoes": [dict(e) for e in T["echoes_public"]]}.get(fn)
         if fn == "api_roll": result = 7
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(result))
     rows = filt(T.get(path, []), urllib.parse.parse_qs(u.query))
@@ -128,13 +131,19 @@ with sync_playwright() as p:
     check("интрига хода видна", "Слухи о предателе" in txt)
     check("Ярость Волков", "Ярость 1" in txt)
     check("Эхо «Святилище» видно", "Святилище" in txt and "Не работают: Подкуп, Плен" in txt)
-    check("ход «Запаса» отмечен", "ходил: Перемещение" in txt)
+    check("ход «Запаса»: только движение, ход не закончен", "ход: Перемещение …" in txt)
+    check("Совы стоят в Эхо «Святилище»", "в Эхо «Святилище»" in txt and "Здесь стоят: «Совы»" in txt)
+    mine = page.locator("section.card:has(h2:has-text(\"Моё участие\"))")
+    check("в «Моём участии» видны свои отряды с кнопками", mine.locator(".squad:has-text(\"Волки\")").count() == 1 and mine.locator("button:has-text(\"Ход\")").count() == 1)
     check("бой в списке", "«Волки» → «Совы»" in txt)
-    check("у Зои есть кнопки отряда", page.locator("button:has-text('Напасть')").count() == 1)
+    check("у Зои есть кнопки отряда (в «Моём участии» и в общем списке)", page.locator("button:has-text('Напасть')").count() == 2)
     if SHOTS: page.screenshot(path=str(SHOTS / "game.png"), full_page=True)
     page.click("button:has-text('Ход') >> nth=0")
     page.wait_for_selector("dialog[open]")
-    page.click("dialog button:has-text('Записать ход')")
+    opts = page.locator("dialog select >> nth=0").locator("option").all_inner_texts()
+    check("в окне хода сначала движение", any("Перемещение" in o for o in opts) and not any("Нападение" == o for o in opts), opts)
+    check("в окне хода есть «Эхо по пути»", page.locator("dialog").inner_text().count("Эхо по пути") == 1)
+    page.click("dialog button:has-text('Записать')")
     page.wait_for_timeout(500)
     check("после действия нет уведомления об ошибке", page.locator(".toast.error").count() == 0,
           page.locator(".toast.error").all_inner_texts())
@@ -161,6 +170,29 @@ with sync_playwright() as p:
     check("после Шпионажа: победа Волков 22 против 20", "Победил «Волки»" in txt)
     check("кубик Волков теперь 9 (было 10)", page.locator(".side.attacker .die").inner_text() == "9")
     if SHOTS: page.screenshot(path=str(SHOTS / "battle-damage.png"), full_page=True)
+
+    print("\nВедущий на странице игры")
+    page.evaluate("localStorage.setItem('taktichka.code', 'admin-test')")
+    page.add_init_script("localStorage.setItem('taktichka.code', 'admin-test')")
+    page.goto(BASE + "#/game/1"); page.reload()
+    page.wait_for_selector("text=Ведущему", timeout=20000)
+    check("кнопка «Добавить стратега…»", page.locator("button:has-text('Добавить стратега')").count() == 1)
+    check("«+ Отряд» у каждого стратега", page.locator("button:has-text('+ Отряд')").count() == 2)
+    check("ведущий может изменить отряд в идущей игре", page.locator("button:has-text('Изменить')").count() >= 3)
+    page.click("button:has-text('+ Отряд') >> nth=1")
+    page.wait_for_selector("dialog[open]")
+    dt = page.locator("dialog").inner_text()
+    check("окно сборки за Ратбургера, есть «показать все фигуры»", "Ратбургер" in dt and "показать все фигуры" in dt, dt[:120])
+    page.click("dialog button:has-text('Сохранить отряд')")
+    page.wait_for_timeout(500)
+    sv = [c for c in calls if c[0] == "api_squad_save"]
+    check("отряд сохраняется за стратега Ратбургера", sv and sv[-1][1].get("p_strategist") == 2, sv[-1:] if sv else None)
+    page.keyboard.press("Escape")
+    page.click("button:has-text('Эхо') >> nth=0")
+    page.wait_for_selector("dialog[open] >> text=Эхо занимает часть карты", timeout=10000)
+    check("окно «Эхо» у отряда открывается (ведущий видит список)", page.locator("dialog select").count() >= 1)
+    page.keyboard.press("Escape")
+    if SHOTS: page.screenshot(path=str(SHOTS / "game-admin.png"), full_page=True)
 
     print("\nТелефон")
     page.set_viewport_size({"width": 390, "height": 844})

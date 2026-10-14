@@ -9,7 +9,8 @@
  *                         figures: [{ id, name, nominal, s, l, v, properties: [..], state }] },
  *   actions:   [{ id, kind, squad_id, figure_id, property, params, roll, cost }]  // по порядку id
  *   gifts:     ['alaya', 'belaya', ...],
- *   echoBlocked: ['Подкуп', ...],             // свойства, запрещённые активными Эхо
+ *   echoBlocked: ['Подкуп', ...],             // запрещено Эхо для обеих сторон (обычно пусто)
+ *   (у стороны может быть своё echoBlocked — запреты Эхо, в котором стоит этот отряд)
  *   properties: { 'Натиск': { phase, cost }, ... }
  * }
  * Состояния фигур (state) живые, из базы: ok | damaged | discard | reserve | dump.
@@ -119,7 +120,8 @@
       if (ctx.perfectDefense && side === 'attacker') return 'Совершенная оборона противника';
       if (entry.phase === 'Риск' && ctx.riskBlock[side]) return 'противник автопобедил в этой фазе';
       if (prop) {
-        if (echoBlocked.has(prop)) return 'не работает под действием Эхо';
+        if (echoBlocked.has(prop) || (sides[side].echoBlocked || []).includes(prop))
+          return 'не работает: отряд в Эхо' + (sides[side].echoName ? ' «' + sides[side].echoName + '»' : '');
         if (ctx.noSpend[side] && paid(prop)) return '«Всем друг» противника: тратить Ресурсы нельзя';
         if (REMOVING.has(prop) && ctx.honor[opp]) return '«Закон и честь» противника';
         switch (prop) {

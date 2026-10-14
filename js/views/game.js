@@ -3,8 +3,6 @@ import { rows, call, cache, session, isAdmin, watch, loadRefs } from '../api.js'
 import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js';
 import { logList, squadCard, pname, glyph, res } from './common.js';
 
-const MOVE_ACTIONS = ['Перемещение', 'Нападение', 'Обмен', 'Активация фишки', 'Перемещение и Нападение',
-  'Перемещение и Обмен', 'Перемещение и Активация фишки', 'Стоит на месте'];
 
 export default async function gameView(root, gameId) {
   gameId = Number(gameId);
@@ -92,8 +90,9 @@ export default async function gameView(root, gameId) {
   function orderList(d, t) {
     if (!d.order.length) return h('p', { class: 'empty' }, 'Стратегов пока нет.');
     return h('div', { class: 'stack small' }, h('span', { class: 'muted' }, 'Порядок хода (инициатива, от большей к меньшей):'),
-      h('ol', { class: 'order' }, d.order.map((s) => h('li', { class: t && t.current_strategist === s.id ? 'now' : '' },
-        d.label(s.id), s.initiative != null ? ' · ' + s.initiative : ' · ?'))));
+      h('ol', { class: 'order' }, d.order.map((s) => h('li', { class: t && t.current_strategist === s.id ? 'now' : '',
+        title: d.shifted.has(s.id) ? 'Чёрная луна: у стратега 3 и больше отрядов — он ходит после первой тройки' : null },
+        d.label(s.id), s.initiative != null ? ' · ' + s.initiative : ' · ?', d.shifted.has(s.id) ? ' · после тройки' : ''))));
   }
 
   // ───────── «Мой стратег» ─────────
@@ -134,7 +133,9 @@ export default async function gameView(root, gameId) {
           used[n.name] > n.max_per_strategist ? 'bad' : '') : null))),
       d.kept.length && (g.status === 'draft' || isAdmin()) ? h('div', { class: 'row small' }, 'Трофеи в запасе: ',
         d.kept.filter((t) => members.includes(t.holder)).map((t) => btn('«' + t.name + '» → в отряд', () => equip(d, t), 'small'))) : null,
-      members.length > 1 ? h('p', { class: 'muted small', style: 'margin:0' }, 'Вы напарники: фигуры обоих идут в отряды вперемешку без передачи; ограничения общие; Ресурсы — общий кошелёк.') : null);
+      members.length > 1 ? h('p', { class: 'muted small', style: 'margin:0' }, 'Вы напарники: фигуры обоих идут в отряды вперемешку без передачи; ограничения общие; Ресурсы — общий кошелёк.') : null,
+      h('div', { class: 'squads' }, sq.length ? sq.map((x) => squadView(d, x, me)) :
+        h('p', { class: 'empty' }, g.status === 'draft' ? 'Отрядов пока нет — нажмите «+ Новый отряд».' : 'Отрядов нет.')));
   }
 
   // ───────── стратеги и отряды ─────────
@@ -144,7 +145,9 @@ export default async function gameView(root, gameId) {
       d.order.map((s) => h('div', { class: 'stack' },
         h('div', { class: 'row' }, h('h3', { style: 'margin:0' }, d.label(s.id)),
           s.initiative != null ? badge('инициатива ' + s.initiative, 'info') : null,
-          badge('Ресурсы ' + d.money(s.id) + (s.wallet != null ? ' (общие)' : ''))),
+          d.shifted.has(s.id) ? badge('после первой тройки (3+ отряда)', 'warn') : null,
+          badge('Ресурсы ' + d.money(s.id) + (s.wallet != null ? ' (общие)' : '')),
+          isAdmin() && d.game.status !== 'closed' ? btn('+ Отряд', () => buildSquad(d, null, s.id), 'small') : null),
         h('div', { class: 'squads' }, d.squadsOf(s.id).length ? d.squadsOf(s.id).map((sq) => squadView(d, sq, s)) : h('p', { class: 'empty' }, 'Отрядов нет.')))));
   }
 
@@ -152,14 +155,18 @@ export default async function gameView(root, gameId) {
     const mine = (d.myStrategist && d.myStrategist.id === s.id) || isAdmin();
     const running = d.game.status === 'running';
     const acts = [];
-    if (mine && d.game.status === 'draft') {
+    if ((mine && d.game.status === 'draft') || (isAdmin() && d.game.status !== 'closed')) {
       acts.push(btn('Изменить', () => buildSquad(d, sq), 'small'),
         btn('Распустить', () => confirmDo('Распустить отряд «' + sq.name + '»?', () => call('api_squad_delete', { p_squad: sq.id }), 'Отряд распущен'), 'small danger'));
     }
     if (mine && running && !sq.destroyed) {
-      acts.push(btn('Ход', () => move(d, sq), 'small'), btn('Напасть', () => attack(d, sq), 'small'),
-        btn('Свойство', () => useProperty(d, sq), 'small'), btn('Обмен', () => exchange(d, sq), 'small'),
-        btn('Оплатить', () => pay(d, sq), 'small'));
+      const tr = d.turnOf[sq.id] || {};
+      const fin = tr.finished;
+      const why = 'Ход отряда в этом ходу закончен';
+      const disabled = (b) => { if (fin) { b.disabled = true; b.title = why; } return b; };
+      acts.push(disabled(btn('Ход', () => move(d, sq), 'small')), disabled(btn('Напасть', () => attack(d, sq), 'small')),
+        btn('Свойство', () => useProperty(d, sq), 'small'), disabled(btn('Обмен', () => exchange(d, sq), 'small')),
+        btn('Оплатить', () => pay(d, sq), 'small'), btn('Эхо', () => echoMark(d, sq), 'small'));
       if (d.gifts.has('alaya') && sq.rage > 0) acts.push(btn('Ярость', () => rage(d, sq), 'small'));
     }
     if (mine && running) acts.push(btn('Состояние фигур', () => states(d, sq), 'small'));
@@ -173,6 +180,8 @@ export default async function gameView(root, gameId) {
     return squadCard(sq, {
       figs: d.figsOf(sq.id), trophies: d.trophiesOf(sq.id), totals: d.totals[sq.id], moon: d.moon[sq.id],
       moved: d.moves[sq.id], mine: d.myStrategist && d.myStrategist.id === s.id, gifts: d.gifts, figById: d.figById,
+      echo: sq.echo_id ? (d.echoById[sq.echo_id] ? d.echoById[sq.echo_id].name : (isAdmin() ? 'скрытое Эхо #' + sq.echo_id : null)) : null,
+      inBattle: d.inBattle.has(sq.id),
     }, acts);
   }
 
@@ -193,8 +202,11 @@ export default async function gameView(root, gameId) {
         e.description ? h('div', { class: 'small' }, e.description) : null,
         e.blocked_properties && e.blocked_properties.length ? h('div', { class: 'small muted' }, 'Не работают: ' + e.blocked_properties.join(', ')) : null,
         e.move_cost ? h('div', { class: 'small muted' }, 'Движение: +' + res(e.move_cost)) : null,
-        e.end_condition ? h('div', { class: 'small muted' }, 'Пока: ' + e.end_condition) : null)))
-        : h('p', { class: 'empty' }, 'Эхо пока не обнаружены. Их 5, правила каждого становятся известны, когда его находят.'));
+        e.end_condition ? h('div', { class: 'small muted' }, 'Пока: ' + e.end_condition) : null,
+        (() => { const inside = d.squads.filter((s) => s.echo_id === e.id);
+          return inside.length ? h('div', { class: 'small' }, 'Здесь стоят: ' + inside.map((s) => '«' + s.name + '»').join(', ')) : null; })())))
+        : h('p', { class: 'empty' }, 'Эхо пока не обнаружены. Их 5, правила каждого становятся известны, когда его находят.'),
+      h('p', { class: 'muted small', style: 'margin:0' }, 'Эхо занимает часть карты: его правила действуют на отряд, который прошёл через него или остановился в нём (кнопка «Эхо» у отряда или поле «Эхо по пути» в окне хода).'));
   }
 
   function conflictsCard(d) {
@@ -226,7 +238,8 @@ export default async function gameView(root, gameId) {
           return h('label', { class: 'inline' }, d.label(s.id), inp,
             btn('✓', () => act(() => call('api_admin_initiative', { p_strategist: s.id, p_value: inp.value === '' ? null : Number(inp.value) }), 'Инициатива сохранена', done), 'small'));
         }))),
-      h('div', { class: 'row' }, btn('Сделать напарниками…', () => pairAdmin(d)), btn('Эхо…', () => echoesAdmin(d)),
+      h('div', { class: 'row' }, g.status !== 'closed' ? btn('Добавить стратега…', () => addStrategist(d)) : null,
+        btn('Сделать напарниками…', () => pairAdmin(d)), btn('Эхо…', () => echoesAdmin(d)),
         pairs.map((s) => btn('Разделить кошелёк: ' + d.label(s.id) + ' (' + s.wallet + ')', () => splitWallet(d, s)))),
       activeTrophies.length && g.status !== 'draft' ? h('div', { class: 'stack small' }, h('b', {}, 'Трофеи после игры: остаются или исчезают'),
         activeTrophies.map((t) => {
@@ -279,16 +292,21 @@ export default async function gameView(root, gameId) {
       () => call('api_partner_accept', { p_game: gameId, p_inviter: d.membersOf(s.id)[0] }), 'Вы напарники');
   }
 
-  function buildSquad(d, sq) {
+  // Окно сборки отряда. forSid — стратег, за которого собирает ведущий (иначе — свой).
+  function buildSquad(d, sq, forSid) {
     const me = d.myStrategist;
-    const sid = sq ? sq.strategist_id : me && me.id;
+    const sid = sq ? sq.strategist_id : (forSid || (me && me.id));
     const members = sid ? d.membersOf(sid) : [session.me.id];
     const inOther = new Set();
     if (sid) d.squadsOf(sid).forEach((x) => { if (!sq || x.id !== sq.id) d.figsOf(x.id).forEach(({ fig }) => inOther.add(fig.id)); });
     const current = new Set(sq ? d.figsOf(sq.id).map(({ fig }) => fig.id) : []);
-    const eligible = d.figures.filter((f) => f.status === 'active' && (current.has(f.id) ||
-      (!inOther.has(f.id) && (d.ownersOf[f.id] || []).some((p) => members.includes(p)) )))
-      .sort((a, b) => (cache.nominals.find((n) => n.name === b.nominal).rank - cache.nominals.find((n) => n.name === a.nominal).rank) || a.name.localeCompare(b.name, 'ru'));
+    const rankOf = (f) => cache.nominals.find((n) => n.name === f.nominal).rank;
+    const ownedByMembers = (f) => (d.ownersOf[f.id] || []).some((p) => members.includes(p));
+    let showAll = false;   // ведущий может взять и чужие фигуры
+    const eligibleNow = () => d.figures.filter((f) => f.status === 'active' && (current.has(f.id) ||
+      (!inOther.has(f.id) && (showAll || ownedByMembers(f)))))
+      .sort((a, b) => (rankOf(b) - rankOf(a)) || a.name.localeCompare(b.name, 'ru'));
+    let eligible = eligibleNow();
     const usedOther = {};
     if (sid) d.squadsOf(sid).forEach((x) => { if (!sq || x.id !== sq.id) d.figsOf(x.id).forEach(({ fig, sf }) => { if (!sf.borrowed) usedOther[fig.nominal] = (usedOther[fig.nominal] || 0) + 1; }); });
     const name = h('input', { type: 'text', value: sq ? sq.name : '', required: true, placeholder: 'Уникальное в этой игре' });
@@ -317,11 +335,16 @@ export default async function gameView(root, gameId) {
     };
     filter.addEventListener('input', drawList);
     drawList(); drawSummary();
-    modal(sq ? 'Отряд «' + sq.name + '»' : 'Новый отряд', (close) => h('div', { class: 'stack' },
-      h('label', {}, 'Название отряда', name), filter, listBox, summary,
+    const allBox = isAdmin() ? h('label', { class: 'inline' }, h('input', { type: 'checkbox', onchange: (e) => {
+      showAll = e.target.checked; eligible = eligibleNow(); drawList(); drawSummary(); } }), 'показать все фигуры (не только участников)') : null;
+    const whose = sid ? d.label(sid) : session.me.name;
+    modal((sq ? 'Отряд «' + sq.name + '»' : 'Новый отряд') + ' — ' + whose, (close) => h('div', { class: 'stack' },
+      isAdmin() && d.game.status === 'running' && sq ? h('p', { class: 'muted small', style: 'margin:0' }, 'Игра идёт: фигуры, которые остаются в отряде, сохранят своё состояние; новые встанут целыми.') : null,
+      h('label', {}, 'Название отряда', name), h('div', { class: 'row' }, filter, allBox), listBox, summary,
       eligible.length ? null : h('p', { class: 'empty' }, 'Нет свободных фигур.'),
       h('div', { class: 'row end' }, btn('Сохранить отряд', () => act(() => call('api_squad_save', {
         p_game: gameId, p_squad: sq ? sq.id : null, p_name: name.value, p_figures: [...chosen],
+        p_strategist: sq ? null : (forSid || null),
       }), 'Отряд сохранён', () => { close(); done(); }), 'primary'))));
   }
 
@@ -332,16 +355,53 @@ export default async function gameView(root, gameId) {
     ], 'Взять', (v) => act(() => call('api_trophy_equip', { p_trophy: t.id, p_squad: Number(v.sq) }), 'Трофей в отряде', () => { close(); done(); })));
   }
 
+  // Ход отряда: сначала движение (Перемещение / Стоит на месте), потом одно действие
+  // (Нападение и Обмен — своими кнопками; здесь Активация фишки или «Стоит на месте» — закончить ход).
   function move(d, sq) {
     const t = d.turn;
+    const tr = d.turnOf[sq.id] || {};
+    const opts = tr.moved
+      ? [['Активация фишки', 'Активация фишки — ход закончится'], ['Стоит на месте', 'Стоит на месте (без действия) — ход закончится']]
+      : [['Перемещение', 'Перемещение — потом можно одно действие'], ['Стоит на месте', 'Стоит на месте (без движения) — потом можно одно действие'],
+         ['Активация фишки', 'Активация фишки без движения — ход закончится']];
+    const echoes = d.echoes.filter((e) => e.status === 'open' || e.status === 'active');
+    const echoOpts = [['', 'не заходил в Эхо'], ...echoes.flatMap((e) => [['passed:' + e.id, 'прошёл через «' + e.name + '»' + (e.status === 'active' && e.move_cost ? ' (−' + e.move_cost + ' Р.)' : '')],
+      ['stopped:' + e.id, 'остановился в «' + e.name + '»' + (e.status === 'active' && e.move_cost ? ' (−' + e.move_cost + ' Р.)' : '')]])];
     modal('Ход отряда «' + sq.name + '»', (close) => h('div', { class: 'stack' },
       !t || t.phase !== 'actions' ? h('p', { class: 'muted small', style: 'margin:0' }, 'Сейчас не фаза действий — ход не запишется.') : null,
-      d.gifts.has('chernaya') ? h('p', { class: 'muted small', style: 'margin:0' }, 'Чёрная луна: за такт — один отряд; после этого ход перейдёт к следующему.') : null,
+      h('p', { class: 'muted small', style: 'margin:0' }, tr.moved ? 'Отряд уже ' + (tr.text || '').toLowerCase() + '. Осталось одно действие: Нападение, Обмен (своими кнопками) или Активация фишки.'
+        : 'Сначала движение, потом одно действие: Нападение, Обмен или Активация фишки. После действия ход отряда заканчивается.'),
+      d.gifts.has('chernaya') ? h('p', { class: 'muted small', style: 'margin:0' }, 'Чёрная луна: движение до 4 гексов; за такт — один отряд; когда его ход закончен, ход переходит к следующему.') : null,
       form([
-        { name: 'action', label: 'Что делает', type: 'select', options: MOVE_ACTIONS },
+        { name: 'action', label: 'Что делает', type: 'select', options: opts },
+        echoes.length && !tr.moved ? { name: 'echo', label: 'Эхо по пути', type: 'select', options: echoOpts } : null,
         { name: 'comment', label: 'Подробности (куда, какая фишка)' },
-      ], 'Записать ход', (v) => act(() => call('api_squad_move', { p_squad: sq.id, p_action: v.action, p_comment: v.comment }),
-        'Ход записан', () => { close(); done(); }))));
+      ].filter(Boolean), 'Записать', async (v) => {
+        const r = await act(() => call('api_squad_move', { p_squad: sq.id, p_action: v.action, p_comment: v.comment }), 'Ход записан');
+        if (r === undefined) return;
+        if (v.echo) {
+          const [mode, id] = v.echo.split(':');
+          await act(() => call('api_squad_echo', { p_squad: sq.id, p_echo: Number(id), p_mode: mode }),
+            mode === 'stopped' ? 'Отряд стоит в Эхо' : 'Отмечен проход через Эхо');
+        }
+        close(); done();
+      })));
+  }
+
+  // Отметить, что отряд прошёл через Эхо / стоит в нём / вышел (игрок — открытые Эхо, ведущий — любые).
+  async function echoMark(d, sq) {
+    let list = d.echoes.filter((e) => e.status === 'open' || e.status === 'active');
+    if (isAdmin()) { try { list = await call('api_admin_echoes', { p_game: gameId }); } catch (e) { toast(e.message, true); return; } }
+    const cur = sq.echo_id ? (list.find((e) => e.id === sq.echo_id) || { name: '#' + sq.echo_id }) : null;
+    modal('Эхо: «' + sq.name + '»', (close) => h('div', { class: 'stack' },
+      h('p', { class: 'muted small', style: 'margin:0' }, 'Эхо занимает часть карты. Его правила действуют на отряд, который прошёл через него (цена движения) или остановился в нём (запреты свойств — пока не уйдёт).'),
+      cur ? h('div', { class: 'row' }, 'Сейчас стоит в «' + cur.name + '»', btn('Вышел из Эхо', () => act(() => call('api_squad_echo', { p_squad: sq.id, p_echo: null, p_mode: 'left' }),
+        'Отряд вышел из Эхо', () => { close(); done(); }), 'small')) : null,
+      list.length ? form([
+        { name: 'e', label: 'Эхо', type: 'select', options: list.map((e) => [e.id, e.name + (e.status === 'hidden' ? ' (скрыто)' : '')]) },
+        { name: 'mode', label: 'Что произошло', type: 'select', options: [['stopped', 'остановился в нём'], ['passed', 'прошёл через него']] },
+      ], 'Отметить', (v) => act(() => call('api_squad_echo', { p_squad: sq.id, p_echo: Number(v.e), p_mode: v.mode }), 'Отмечено', () => { close(); done(); }))
+        : h('p', { class: 'empty' }, 'Обнаруженных Эхо пока нет.')));
   }
 
   function attack(d, sq) {
@@ -389,7 +449,7 @@ export default async function gameView(root, gameId) {
         ...d.figsOf(b.id).map(({ fig }) => ({ kind: 'f', id: fig.id, name: glyph(fig.nominal) + ' ' + fig.name, side: 'b' })),
         ...d.trophiesOf(sq.id).map((t) => ({ kind: 't', id: t.id, name: 'трофей «' + t.name + '»', side: 'a' })),
         ...d.trophiesOf(b.id).map((t) => ({ kind: 't', id: t.id, name: 'трофей «' + t.name + '»', side: 'b' }))];
-      clear(body, h('p', { class: 'muted small', style: 'margin:0' }, 'Распределите фигуры и трофеи. Обмен не восстанавливает повреждённые фигуры. Если во втором отряде ничего не останется, отряды сольются.'),
+      clear(body, h('p', { class: 'muted small', style: 'margin:0' }, 'Распределите фигуры и трофеи. Обмен — действие «' + sq.name + '»: его ход на этом закончится, второй отряд ходит дальше. Обмен не восстанавливает повреждённые фигуры. Если во втором отряде ничего не останется, отряды сольются.'),
         h('table', {}, h('thead', {}, h('tr', {}, h('th', { class: 'plain' }, ''), h('th', { class: 'plain' }, sq.name), h('th', { class: 'plain' }, b.name))),
           h('tbody', {}, items.map((it) => h('tr', {}, h('td', {}, it.name),
             ['a', 'b'].map((s) => h('td', {}, h('input', { type: 'radio', name: it.kind + it.id, value: s, checked: it.side === s, 'data-kind': it.kind, 'data-id': it.id }))))))),
@@ -432,9 +492,15 @@ export default async function gameView(root, gameId) {
   }
 
   function trophies(d, sq) {
-    modal('Трофеи «' + sq.name + '»', (close) => h('div', { class: 'stack' }, d.trophiesOf(sq.id).map((t) => h('div', { class: 'row' },
-      h('div', { style: 'flex:1' }, h('b', {}, t.name), t.description ? h('div', { class: 'muted small' }, t.description) : null),
-      btn('Выкинуть', () => act(() => call('api_trophy_drop', { p_trophy: t.id }), 'Трофей выброшен', () => { close(); done(); }), 'small danger')))));
+    const fighting = d.inBattle.has(sq.id);
+    modal('Трофеи «' + sq.name + '»', (close) => h('div', { class: 'stack' },
+      fighting ? h('p', { class: 'muted small', style: 'margin:0' }, 'Отряд в бою: во время боя трофей выкинуть нельзя.') : null,
+      d.trophiesOf(sq.id).map((t) => {
+        const b = btn('Выкинуть', () => act(() => call('api_trophy_drop', { p_trophy: t.id }), 'Трофей выброшен', () => { close(); done(); }), 'small danger');
+        if (fighting) { b.disabled = true; b.title = 'Во время боя трофей выкинуть нельзя'; }
+        return h('div', { class: 'row' },
+          h('div', { style: 'flex:1' }, h('b', {}, t.name), t.description ? h('div', { class: 'muted small' }, t.description) : null), b);
+      })));
   }
 
   function death(d, sq) {
@@ -486,6 +552,16 @@ export default async function gameView(root, gameId) {
     ], 'Сохранить', (v) => act(() => call('api_admin_game', { p_id: gameId, p_title: v.title, p_starts_at: v.starts ? new Date(v.starts).toISOString() : null, p_status: d.game.status }),
       'Сохранено', () => { close(); done(); })));
   }
+  function addStrategist(d) {
+    const inGame = new Set(d.members.map((m) => m.player_id));
+    const opts = cache.players.filter((p) => !p.is_admin && !inGame.has(p.id)).map((p) => [p.id, p.name]);
+    if (!opts.length) { toast('Все персонажи уже в игре.', true); return; }
+    modal('Добавить стратега', (close) => h('div', { class: 'stack' },
+      h('p', { class: 'muted small', style: 'margin:0' }, 'Персонаж появится в игре; отряды за него можно собрать кнопкой «+ Отряд» у его имени.'),
+      form([{ name: 'p', label: 'Персонаж', type: 'select', options: opts }], 'Добавить',
+        (v) => act(() => call('api_admin_join', { p_game: gameId, p_player: Number(v.p) }), 'Стратег добавлен', () => { close(); done(); }))));
+  }
+
   function pairAdmin(d) {
     const opts = cache.players.filter((p) => !p.is_admin).map((p) => [p.id, p.name]);
     modal('Напарники', (close) => form([
@@ -547,13 +623,29 @@ async function load(gameId) {
   owners.forEach((o) => { (ownersOf[o.figure_id] = ownersOf[o.figure_id] || []).push(o.player_id); });
   const membersOf = (sid) => members.filter((m) => m.strategist_id === sid).map((m) => m.player_id);
   const label = (sid) => membersOf(sid).map(pname).join(' и ') || ('стратег #' + sid);
-  const order = strategists.slice().sort((a, b) => ((b.initiative ?? -1e9) - (a.initiative ?? -1e9)) || a.id - b.id);
+  // Порядок хода как в базе (turn_order): по инициативе; при Чёрной луне места 1–3 — только
+  // стратегам с 1–2 отрядами, остальные — после них.
+  const byInit = strategists.slice().sort((a, b) => ((b.initiative ?? -1e9) - (a.initiative ?? -1e9)) || a.id - b.id);
+  const nSquads = (sid) => squads.filter((s) => s.strategist_id === sid).length;
+  const giftSet = new Set(gifts.map((g) => g.gift));
+  const shifted = new Set();
+  let order = byInit;
+  if (giftSet.has('chernaya')) {
+    const top = byInit.filter((s) => nSquads(s.id) < 3).slice(0, 3);
+    order = top.concat(byInit.filter((s) => !top.includes(s)));
+    byInit.forEach((s, i) => { if (nSquads(s.id) >= 3 && order.indexOf(s) > i) shifted.add(s.id); });
+  }
   const mine = session.me ? members.find((m) => m.player_id === session.me.id) : null;
   const squadById = Object.fromEntries(squads.map((s) => [s.id, s]));
   const d = {
-    game: games[0] || null, gifts: new Set(gifts.map((g) => g.gift)), strategists, members, squads, turn, battles, echoes, events,
+    game: games[0] || null, gifts: giftSet, strategists, members, squads, turn, battles, echoes, events,
     figures, figById, ownersOf, conflicts, kept, trophies: trophies.filter((t) => t.status === 'active'), squadById,
-    order, membersOf, label,
+    order, shifted, membersOf, label,
+    echoById: Object.fromEntries(echoes.map((e) => [e.id, e])),
+    inBattle: new Set(battles.filter((b) => b.status === 'open').flatMap((b) => [b.attacker, b.defender])),
+    // ход отряда в текущем ходу: { text, moved, finished }
+    turnOf: Object.fromEntries(moves.map((m) => [m.squad_id, { text: m.action + (m.tact > 1 ? ' (такт ' + m.tact + ')' : ''),
+      moved: !!m.movement, finished: !!m.act }])),
     myStrategist: mine ? strategists.find((s) => s.id === mine.strategist_id) : null,
     squadsOf: (sid) => squads.filter((s) => s.strategist_id === sid),
     figsOf: (sqid) => sfs.filter((x) => x.squad_id === sqid).map((sf) => ({ sf, fig: figById[sf.figure_id] })).filter((x) => x.fig)
@@ -561,7 +653,7 @@ async function load(gameId) {
     trophiesOf: (sqid) => trophies.filter((t) => t.squad_id === sqid && t.status === 'active'),
     totals: Object.fromEntries(totals.map((t) => [t.squad_id, t])),
     moon: Object.fromEntries(moon.map((m) => [m.squad_id, m])),
-    moves: Object.fromEntries(moves.map((m) => [m.squad_id, m.action + (m.tact > 1 ? ' (такт ' + m.tact + ')' : '')])),
+    moves: Object.fromEntries(moves.map((m) => [m.squad_id, m.action + (m.act ? '' : ' …') + (m.tact > 1 ? ' (такт ' + m.tact + ')' : '')])),
     squadName: (id) => (squadById[id] ? squadById[id].name : '#' + id),
     money: (sid) => {
       const s = strategists.find((x) => x.id === sid);
