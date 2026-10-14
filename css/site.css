@@ -119,15 +119,17 @@ tr.dead td { color: var(--stone); text-decoration: line-through; }
 .squads { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 12px; }
 .squad { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 6px;
   background: rgba(17, 18, 27, .55); }
-/* рамки отрядов: зелёная — может действовать, жёлтая — уже ходил в этом ходу, красная — уничтожен */
+/* рамки отрядов: зелёная — может действовать, синяя — ждёт череда, жёлтая — уже ходил в этом ходу, красная — уничтожен */
 .squad.st-active { border: 2px solid var(--ok); }
 .squad.st-done { border: 2px solid var(--warn); }
+.squad.st-waiting { border: 2px solid var(--info); }
 .squad.st-destroyed { border: 2px solid var(--bad); opacity: .85; }
 .frame-legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); }
 .frame-legend .fl { display: inline-flex; align-items: center; gap: 6px; }
 .frame-legend .fl::before { content: ""; width: 14px; height: 10px; border-radius: 3px; border: 2px solid; }
 .frame-legend .fl.active::before { border-color: var(--ok); }
 .frame-legend .fl.done::before { border-color: var(--warn); }
+.frame-legend .fl.waiting::before { border-color: var(--info); }
 .frame-legend .fl.destroyed::before { border-color: var(--bad); }
 .squad .name { font-weight: 600; }
 .squad .stats { display: flex; gap: 10px; font-variant-numeric: tabular-nums; }

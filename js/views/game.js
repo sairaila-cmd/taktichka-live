@@ -85,7 +85,7 @@ export default async function gameView(root, gameId) {
         t && d.gifts.has('chernaya') ? badge('такт ' + t.tact + ' из ' + t.tacts, 'info') : null,
         t && t.current_strategist ? h('span', {}, 'Сейчас ходит: ', h('b', {}, d.label(t.current_strategist))) : null),
       orderList(d, t),
-      h('div', { class: 'frame-legend small' }, h('span', { class: 'fl active' }, 'может действовать'), h('span', { class: 'fl done' }, 'уже ходил в этом ходу'),
+      h('div', { class: 'frame-legend small' }, h('span', { class: 'fl active' }, 'может действовать'), h('span', { class: 'fl waiting' }, 'ждёт череда'), h('span', { class: 'fl done' }, 'уже ходил в этом ходу'),
         h('span', { class: 'fl destroyed' }, 'уничтожен')),
       intrigues.length ? h('div', { class: 'stack small' }, h('b', {}, 'Интриги этого хода'),
         intrigues.map((e) => h('div', {}, '◆ ', (e.data && e.data.label) || '', e.comment ? ': ' + e.comment : ''))) : null);
@@ -192,7 +192,7 @@ export default async function gameView(root, gameId) {
   }
 
   // Рамка отряда (видна всем одинаково): destroyed — уничтожен, done — в этом ходу уже ходил,
-  // active — может действовать прямо сейчас, null — ждёт своего черёда.
+  // active — может действовать прямо сейчас, waiting — ещё не ходил и ждёт череда, null — вне фазы действий.
   function squadStatus(d, sq) {
     if (sq.destroyed) return 'destroyed';
     const tr = d.turnOf[sq.id];
@@ -200,8 +200,8 @@ export default async function gameView(root, gameId) {
     const t = d.turn;
     if (d.game.status !== 'running' || !t || t.phase !== 'actions') return null;
     if (tr && d.gifts.has('chernaya') && tr.tact < t.tact) return 'done';
-    if (t.current_strategist !== sq.strategist_id) return null;
-    if (d.gifts.has('chernaya') && d.movesList.some((m) => m.strategist_id === sq.strategist_id && m.tact === t.tact && m.squad_id !== sq.id)) return null;
+    if (t.current_strategist !== sq.strategist_id) return 'waiting';
+    if (d.gifts.has('chernaya') && d.movesList.some((m) => m.strategist_id === sq.strategist_id && m.tact === t.tact && m.squad_id !== sq.id)) return 'waiting';
     return 'active';
   }
 
@@ -636,7 +636,7 @@ export default async function gameView(root, gameId) {
 async function load(gameId) {
   await loadRefs(true);   // Ресурсы и бонусы игроков меняются по ходу игры
   const byGame = (t, cols) => rows(t, (q) => q.eq('game_id', gameId), cols);
-  const [games, gifts, strategists, members, squads, sfs, totals, moon, turns, battles, echoes, events, figures, owners, conflicts, kept] = await Promise.all([
+  const [games, gifts, strategists, members, squads, sfs, totals, moon, turns, battles, echoes, events, figures, owners, conflicts, kept, lineup] = await Promise.all([
     rows('games', (q) => q.eq('id', gameId)), byGame('game_gifts'), byGame('strategists'), byGame('strategist_members'),
     rows('squads', (q) => q.eq('game_id', gameId).order('id')), byGame('squad_figures'), byGame('squad_totals'), byGame('squad_moon'),
     rows('turns', (q) => q.eq('game_id', gameId).order('number', { ascending: false }).limit(1)),
@@ -646,6 +646,8 @@ async function load(gameId) {
     rows('figures', (q) => q.order('name')), rows('figure_owners'),
     rows('figure_conflicts', (q) => q.eq('game_id', gameId)),
     rows('trophies', (q) => q.eq('status', 'kept')),
+    // история составов: какие фигуры когда-либо стояли в отрядах игры (для статистики)
+    rows('events', (q) => q.eq('game_id', gameId).in('kind', ['squad_save', 'figure_move']).order('at'), 'kind, squad_id, figure_id, data, at, reverted'),
   ]);
   const squadIds = squads.map((s) => s.id);
   const trophies = squadIds.length ? await rows('trophies', (q) => q.in('squad_id', squadIds)) : [];
@@ -688,6 +690,8 @@ async function load(gameId) {
     moon: Object.fromEntries(moon.map((m) => [m.squad_id, m])),
     moves: Object.fromEntries(moves.map((m) => [m.squad_id, m.action + (m.act ? '' : ' …') + (m.tact > 1 ? ' (такт ' + m.tact + ')' : '')])),
     movesList: moves,
+    lineup: lineup.filter((e) => !e.reverted),
+    allSquadFigures: sfs,
     // фигуры, уже применявшие свойство фазы Перемещения в этом ходу (раз в ход на фигуру)
     usedThisTurn: new Set(turn ? events.filter((e) => e.kind === 'property_use' && !e.reverted && e.data && e.data.phase === 'Перемещение'
       && Number(e.data.turn) === turn.number).map((e) => e.figure_id) : []),

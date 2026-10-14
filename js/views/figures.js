@@ -1,7 +1,7 @@
 // Фигуры: таблица как в дашборде + карточка фигуры, история и правки по коду.
-import { rows, call, cache, session, isAdmin } from '../api.js';
-import { h, clear, btn, modal, form, act, refresh, NOM_GLYPH, plural } from '../ui.js';
-import { logList, pname } from './common.js';
+import { rows, cache, session } from '../api.js';
+import { h, clear, btn, NOM_GLYPH, plural } from '../ui.js';
+import { openFigure, addFigure } from './figure-card.js';
 
 const COLS = [
   ['name', 'Фигура'], ['nominal', 'Номинал'], ['s', 'С', 'num'], ['l', 'Л', 'num'], ['v', 'В', 'num'],
@@ -66,7 +66,7 @@ export default async function figuresView(root, openId) {
       return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), 'ru')) * st.dir;
     });
     count.textContent = 'показано ' + list.length;
-    clear(tbody, list.map((f) => h('tr', { class: 'click' + (f.status === 'dead' ? ' dead' : ''), onclick: () => { location.hash = '#/figure/' + f.id; } },
+    clear(tbody, list.map((f) => h('tr', { class: 'click' + (f.status === 'dead' ? ' dead' : ''), onclick: () => openFigure(f.id) },
       h('td', {}, f.name), h('td', { style: 'white-space: nowrap' }, NOM_GLYPH[f.nominal] + ' ' + f.nominal),
       h('td', { class: 'num' }, f.s), h('td', { class: 'num' }, f.l), h('td', { class: 'num' }, f.v), h('td', { class: 'num' }, f.sum),
       h('td', {}, f.props), h('td', { class: 'wide-only' }, f.owner_label), h('td', { class: 'wide-only muted' }, f.sources))));
@@ -74,93 +74,11 @@ export default async function figuresView(root, openId) {
   draw();
 
   if (openId) {
-    const f = figures.find((x) => x.id === Number(openId));
-    if (f) setTimeout(() => showFigure(f), 0);
-  }
-
-  async function showFigure(f) {
-    const events = await rows('events', (q) => q.eq('figure_id', f.id).order('at', { ascending: false }).limit(100));
-    const mine = session.me && (f.owners.includes(session.me.id) || isAdmin());
-    const games = session.me ? await rows('games', (q) => q.order('id', { ascending: false }).limit(30)) : [];
-    const close = modal(NOM_GLYPH[f.nominal] + ' ' + f.name, (closeFn) => h('div', { class: 'stack' },
-      h('div', { class: 'row' },
-        h('span', { class: 'badge moon' }, f.nominal),
-        h('span', { class: 'badge' }, 'Сила ' + f.s), h('span', { class: 'badge' }, 'Лояльность ' + f.l),
-        h('span', { class: 'badge' }, 'Влияние ' + f.v), h('span', { class: 'badge' }, 'Σ ' + f.sum),
-        f.status === 'dead' ? h('span', { class: 'badge bad' }, 'погибла') : null),
-      (f.properties || []).map((p) => h('div', {}, h('b', {}, p),
-        cache.propByName[p] ? h('span', { class: 'muted small' }, ' · ' + cache.propByName[p].phase +
-          (cache.propByName[p].cost ? ' · ' + cache.propByName[p].cost + ' Р.' : (cache.propByName[p].cost_note ? ' · ' + cache.propByName[p].cost_note + ' Р.' : ''))) : null,
-        cache.propByName[p] ? h('div', { class: 'prop-desc' }, cache.propByName[p].description) : null)),
-      h('div', { class: 'small' }, 'Владельцы: ', f.owners.length ? f.owners.map(pname).join(', ') : '—',
-        f.owner_label && f.owner_label.split(/; | и /).sort().join() !== f.owners.map(pname).sort().join() ? h('span', { class: 'muted' }, ' (в дашборде: ' + f.owner_label + ')') : null),
-      f.sources ? h('div', { class: 'small muted' }, 'Источники: ' + f.sources) : null,
-      mine && f.status === 'active' ? h('div', { class: 'row' },
-        btn('Править', () => { closeFn(); editFigure(f); }),
-        btn('Передать', () => { closeFn(); transferFigure(f); }),
-        btn('Отметить применение', () => { closeFn(); useFigure(f, games); })) : null,
-      h('h3', {}, 'История'),
-      logList(events, { figures: { [f.id]: f } })));
-    document.getElementById('dialog').addEventListener('close', () => {
-      if (location.hash === '#/figure/' + f.id) history.replaceState(null, '', '#/');
-    }, { once: true });
-    return close;
-  }
-
-  const propOptions = () => cache.properties.map((p) => [p.name, p.name + ' (' + p.phase + ')']);
-  const nomOptions = () => cache.nominals.map((n) => [n.name, NOM_GLYPH[n.name] + ' ' + n.name]);
-  const reload = refresh;
-
-  function addFigure() {
-    modal('Новая фигура', (close) => form([
-      { name: 'name', label: 'Название', required: true },
-      { name: 'nominal', label: 'Номинал', type: 'select', options: nomOptions(), value: 'пешка' },
-      { name: 's', label: 'Сила', type: 'number', value: 1, min: 0 },
-      { name: 'l', label: 'Лояльность', type: 'number', value: 1, min: 0 },
-      { name: 'v', label: 'Влияние', type: 'number', value: 1, min: 0 },
-      { name: 'properties', label: 'Свойства (Ctrl — несколько)', type: 'select', multiple: true, options: propOptions() },
-      { name: 'source', label: 'Где получена (игра)' },
-      { name: 'comment', label: 'Комментарий' },
-    ], 'Добавить', (v) => act(() => call('api_figure_add', {
-      p_name: v.name, p_nominal: v.nominal, p_s: v.s ?? 0, p_l: v.l ?? 0, p_v: v.v ?? 0,
-      p_properties: v.properties, p_source: v.source, p_comment: v.comment,
-    }), 'Фигура добавлена', () => { close(); reload(); })));
-  }
-
-  function editFigure(f) {
-    modal('Править «' + f.name + '»', (close) => form([
-      { name: 'name', label: 'Название', required: true, value: f.name },
-      { name: 'nominal', label: 'Номинал', type: 'select', options: nomOptions(), value: f.nominal },
-      { name: 's', label: 'Сила', type: 'number', value: f.s, min: 0 },
-      { name: 'l', label: 'Лояльность', type: 'number', value: f.l, min: 0 },
-      { name: 'v', label: 'Влияние', type: 'number', value: f.v, min: 0 },
-      { name: 'properties', label: 'Свойства (Ctrl — несколько)', type: 'select', multiple: true, options: propOptions(), value: f.properties },
-      { name: 'comment', label: 'Почему меняется (видно в истории)' },
-    ], 'Сохранить', (v) => act(() => call('api_figure_edit', {
-      p_figure: f.id, p_name: v.name, p_nominal: v.nominal, p_s: v.s ?? 0, p_l: v.l ?? 0, p_v: v.v ?? 0,
-      p_properties: v.properties, p_comment: v.comment,
-    }), 'Сохранено', () => { close(); reload(); })));
-  }
-
-  function transferFigure(f) {
-    const fromOpts = isAdmin() ? f.owners.map((id) => [id, pname(id)]) : [[session.me.id, session.me.name]];
-    modal('Передать «' + f.name + '»', (close) => form([
-      { name: 'from', label: 'Чья доля', type: 'select', options: fromOpts, value: fromOpts[0] && fromOpts[0][0] },
-      { name: 'to', label: 'Кому', type: 'select', required: true,
-        options: cache.players.filter((p) => !p.is_admin).map((p) => [p.id, p.name]) },
-      { name: 'comment', label: 'Комментарий (игра, причина)' },
-    ], 'Передать', (v) => act(() => call('api_figure_transfer', {
-      p_figure: f.id, p_from: Number(v.from), p_to: Number(v.to), p_comment: v.comment,
-    }), 'Фигура передана', () => { close(); reload(); })));
-  }
-
-  function useFigure(f, games) {
-    modal('Применение «' + f.name + '»', (close) => form([
-      { name: 'game', label: 'Игра на сайте', type: 'select', options: [['', '— не на сайте —'], ...games.map((g) => [g.id, g.title])] },
-      { name: 'where', label: 'Где применена (если игра не на сайте)' },
-      { name: 'comment', label: 'Что произошло' },
-    ], 'Отметить', (v) => act(() => call('api_figure_use', {
-      p_figure: f.id, p_game: v.game ? Number(v.game) : null, p_where: v.where, p_comment: v.comment,
-    }), 'Отмечено', () => { close(); })));
+    // прямая ссылка #/figure/ID: окно поверх раздела, после закрытия адрес возвращается к «Фигурам»
+    setTimeout(() => openFigure(Number(openId)).then(() => {
+      document.getElementById('dialog').addEventListener('close', () => {
+        if (location.hash === '#/figure/' + openId) history.replaceState(null, '', '#/');
+      }, { once: true });
+    }), 0);
   }
 }

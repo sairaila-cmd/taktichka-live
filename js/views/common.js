@@ -78,9 +78,19 @@ export function logList(events, maps) {
 
 export const glyph = (nom) => NOM_GLYPH[nom] || '';
 
+// Ссылка на фигуру: обычный щелчок открывает окно фигуры поверх текущей страницы
+// (адрес не меняется); ссылку можно открыть и в новой вкладке.
+export function figLink(f, text) {
+  return h('a', { href: '#/figure/' + f.id, onclick: (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    import('./figure-card.js').then((m) => m.openFigure(f.id));
+  } }, text || f.name);
+}
+
 export function figLine(f, extra) {
   return h('span', {}, h('span', { class: 'nom', title: f.nominal }, glyph(f.nominal) + ' '),
-    h('a', { href: '#/figure/' + f.id }, f.name),
+    figLink(f),
     h('span', { class: 'muted num' }, ' ' + f.s + '/' + f.l + '/' + f.v),
     f.properties && f.properties.length ? h('span', { class: 'muted' }, ' · ' + f.properties.join(' / ')) : null,
     extra || null);

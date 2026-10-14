@@ -1,7 +1,7 @@
 // Помощник боя: очередь фигур, свойства по фазам, Сила, броски, исход; вживую у обоих игроков.
 import { rows, call, cache, session, isAdmin, watch } from '../api.js';
 import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js';
-import { glyph, pname } from './common.js';
+import { glyph, pname, figLink } from './common.js';
 
 const SIDE_RU = { attacker: 'нападает', defender: 'защищается' };
 const HINTS = {
@@ -74,7 +74,7 @@ export default async function battleView(root, battleId) {
           act(() => call('api_rage_spend', { p_squad: sq.id, p_use: 'power', p_battle: battleId, p_comment: null }), 'Ярость: +5 к Силе', done), 'small') : null,
         rageUsed ? badge('+5 от Ярости взято', 'moon') : null) : null,
       h('ul', { class: 'figs' }, d.figs[side].map((f) => h('li', { class: 'st-' + f.state },
-        h('span', {}, glyph(f.nominal) + ' ' + f.name), h('span', { class: 'muted num' }, f.s + '/' + f.l + '/' + f.v),
+        h('span', {}, glyph(f.nominal) + ' ', figLink(f)), h('span', { class: 'muted num' }, f.s + '/' + f.l + '/' + f.v),
         h('span', { class: 'muted' }, (f.properties || []).join(' / ')),
         f.state !== 'ok' ? badge(STATE_RU[f.state], 'warn') : null,
         canAct(side) ? stateSelect(sq.id, f) : null))),
@@ -203,7 +203,7 @@ export default async function battleView(root, battleId) {
       return h('div', { class: 'stack' }, h('div', { class: 'phase-head' }, ph),
         list.length ? h('ol', { class: 'queue' }, list.map((e) => h('li', { class: e.status },
           h('div', { class: 'row' }, h('span', { class: 'who-side ' + e.side }, d.sq[e.side].name),
-            h('b', {}, glyph(e.figure.nominal) + ' ' + e.figure.name), h('span', { class: 'muted small' }, 'Л ' + e.figure.l),
+            h('b', {}, glyph(e.figure.nominal) + ' ', figLink(e.figure)), h('span', { class: 'muted small' }, 'Л ' + e.figure.l),
             h('span', { class: 'small' }, e.properties.join(' / ')),
             e.status === 'done' ? badge('применено' + (e.action && e.action.cost ? ' · ' + e.action.cost + ' Р.' : '') + (e.action && e.action.roll ? ' · бросок ' + e.action.roll : ''), 'ok') :
             e.status === 'current' ? badge('ходит сейчас', 'moon') : e.status === 'skipped' ? badge('пропуск') :

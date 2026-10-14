@@ -10,6 +10,7 @@ const P = [['s', 'Сила', '#e7e07c'], ['l', 'Лояльность', '#9a9a96'
 const STATES = [
   ['ok', 'цела', 'var(--ok)'], ['damaged', 'повреждена', 'var(--warn)'], ['discard', 'в отбое', '#9a9a96'],
   ['reserve', 'в резерве', '#6f7080'], ['dump', 'на свалке', '#4a4c5a'], ['dead', 'погибла', 'var(--bad)'],
+  ['left', 'выбыла из отряда', '#b7b4a0'],
 ];
 
 function svg(tag, attrs = {}, ...kids) {
@@ -134,6 +135,20 @@ const legend = (items) => h('div', { class: 'chart-legend' }, items.map(([c, lab
 
 export function statsCard(d, gameId) {
   const all = d.squads.flatMap((sq) => d.figsOf(sq.id).map(({ fig, sf }) => ({ fig, sf, sq })));
+  // Фигуры, которые раньше стояли в отрядах этой игры, а потом были убраны (правка, роспуск отряда).
+  const nowIn = new Set((d.allSquadFigures || []).map((x) => x.figure_id));
+  const lastSquad = {};
+  (d.lineup || []).forEach((e) => {
+    const ids = e.kind === 'squad_save' ? ((e.data && e.data.figures) || []) : [e.figure_id];
+    ids.forEach((id) => { if (id != null) lastSquad[id] = e.squad_id; });
+  });
+  Object.entries(lastSquad).forEach(([id, sqid]) => {
+    id = Number(id);
+    const fig = d.figById[id];
+    if (!fig || nowIn.has(id)) return;
+    const sq = d.squadById[sqid] || { id: sqid, name: 'распущенный отряд', strategist_id: null };
+    all.push({ fig, sf: { state: 'left', borrowed: false }, sq, left: true });
+  });
   if (!all.length) return h('section', { class: 'card' }, h('h2', {}, 'Статистика игры'), h('p', { class: 'empty' }, 'Отряды ещё не собраны.'));
   const stateOf = (x) => (x.fig.status === 'dead' && x.fig.died_game === gameId ? 'dead' : x.sf.state);
   const count = (list) => { const c = {}; list.forEach((x) => { const k = stateOf(x); c[k] = (c[k] || 0) + 1; }); return c; };
@@ -144,7 +159,7 @@ export function statsCard(d, gameId) {
 
   // плитки
   const tiles = h('div', { class: 'tiles' },
-    h('div', { class: 'tile big' }, h('b', {}, all.length), h('span', {}, 'фигур в отрядах')),
+    h('div', { class: 'tile big' }, h('b', {}, all.length), h('span', {}, 'фигур в отрядах (сейчас и раньше)')),
     noms.map((n) => h('div', { class: 'tile' }, h('b', {}, NOM_GLYPH[n] + ' ' + all.filter((x) => x.fig.nominal === n).length), h('span', {}, n))),
     h('div', { class: 'tile' }, h('b', {}, d.squads.length), h('span', {}, plural(d.squads.length, 'отряд', 'отряда', 'отрядов').replace(/^\d+ /, ''))),
     h('div', { class: 'tile' }, h('b', {}, d.strategists.length), h('span', {}, 'стратегов')),
@@ -157,10 +172,10 @@ export function statsCard(d, gameId) {
   const byStrategist = h('div', { class: 'tablewrap', style: 'max-height:none' }, h('table', {},
     h('thead', {}, h('tr', {}, h('th', { class: 'plain' }, 'Стратег'), STATES.map(([, label]) => h('th', { class: 'plain num' }, label)),
       h('th', { class: 'plain num' }, 'взяты'))),
-    h('tbody', {}, d.order.map((s) => {
+    h('tbody', {}, [...d.order, ...(all.some((x) => x.sq.strategist_id == null) ? [{ id: null }] : [])].map((s) => {
       const list = all.filter((x) => x.sq.strategist_id === s.id);
       const c = count(list);
-      return h('tr', {}, h('td', {}, d.label(s.id)), STATES.map(([k]) => h('td', { class: 'num' + (c[k] ? '' : ' muted') }, c[k] || 0)),
+      return h('tr', {}, h('td', {}, s.id == null ? 'из распущенных отрядов' : d.label(s.id)), STATES.map(([k]) => h('td', { class: 'num' + (c[k] ? '' : ' muted') }, c[k] || 0)),
         h('td', { class: 'num' }, list.filter((x) => x.sf.borrowed).length));
     }))));
 
@@ -172,7 +187,7 @@ export function statsCard(d, gameId) {
     return { nominal: n, n: g.length, s: a('s'), l: a('l'), v: a('v') };
   });
   const top = [...all].sort((a, b) => (b.fig.s + b.fig.l + b.fig.v) - (a.fig.s + a.fig.l + a.fig.v) || a.fig.name.localeCompare(b.fig.name, 'ru'))
-    .slice(0, 10).map((x) => ({ label: (NOM_GLYPH[x.fig.nominal] || '') + ' ' + x.fig.name, title: x.fig.name + ' — «' + x.sq.name + '»',
+    .slice(0, 10).map((x) => ({ label: (NOM_GLYPH[x.fig.nominal] || '') + ' ' + x.fig.name, title: x.fig.name + ' — «' + x.sq.name + '»' + (x.left ? ' (выбыла из отряда)' : ''),
       value: x.fig.s + x.fig.l + x.fig.v, parts: P.map(([k, label, c]) => [c, label, x.fig[k]]) }));
   const propCount = {};
   all.forEach((x) => (x.fig.properties || []).forEach((p) => { propCount[p] = (propCount[p] || 0) + 1; }));
@@ -180,7 +195,7 @@ export function statsCard(d, gameId) {
     .map(([p, n]) => ({ label: p, value: n }));
 
   return h('section', { class: 'card' }, h('h2', {}, 'Статистика игры'),
-    h('p', { class: 'muted small', style: 'margin:0' }, 'По фигурам в отрядах этой игры. Наведите на график — появятся подробности.'),
+    h('p', { class: 'muted small', style: 'margin:0' }, 'По фигурам, которые стоят или стояли в отрядах этой игры. Наведите на график — появятся подробности.'),
     tiles,
     h('h3', {}, 'Состояния фигур'),
     stateTiles, statesStrip(states, all.length), legend(STATES.map(([, label, c]) => [c, label])), byStrategist,

@@ -22,14 +22,14 @@ def fig(i, name, nom, s, l, prop): return {"id": i, "name": name, "nominal": nom
 figures = [fig(11, "Ладья-натиск", "ладья", 5, 3, "Натиск"), fig(12, "Пешка-добивание", "пешка", 1, 2, "Добивание"),
            fig(13, "Конь-осведомлённый", "конь", 2, 2, "Осведомленность"), fig(21, "Пешка-шпион", "пешка", 3, 1, "Шпионаж"),
            fig(22, "Ладья-лекарь", "ладья", 7, 2, "Лечение"), fig(23, "Офицер «Всем друг»", "офицер", 5, 3, "Всем друг"),
-           fig(24, "Резервный конь", "конь", 2, 2, "Мобильность")]
+           fig(24, "Резервный конь", "конь", 2, 2, "Мобильность"), fig(25, "Выбывший пёс", "пешка", 4, 4, "Мобильность")]
 T = {
     "players": players,
     "properties": [{"name": p["name"], "phase": p["phase"], "description": p["description"], "cost": COST.get(p["name"], 0), "cost_note": None} for p in PROPS],
     "nominals": [{"name": n, "rank": r, "max_per_strategist": m} for n, r, m in
                  [("король", 6, 1), ("ферзь", 5, 1), ("ладья", 4, 2), ("офицер", 3, 2), ("конь", 2, 2), ("пешка", 1, 8)]],
     "figures": figures,
-    "figure_owners": [{"figure_id": f, "player_id": 2} for f in (11, 12, 13)] + [{"figure_id": f, "player_id": 3} for f in (21, 22, 23, 24)],
+    "figure_owners": [{"figure_id": f, "player_id": 2} for f in (11, 12, 13)] + [{"figure_id": f, "player_id": 3} for f in (21, 22, 23, 24, 25)],
     "games": [{"id": 1, "title": "Пять ликов одной Луны", "starts_at": "2026-10-20T16:00:00Z", "status": "running"}],
     "game_gifts": [{"game_id": 1, "gift": g} for g in ("alaya", "belaya", "chernaya", "gorkaya")],
     "strategists": [{"id": 1, "game_id": 1, "wallet": None, "invited": None, "initiative": 10},
@@ -61,7 +61,11 @@ T = {
     "events": [{"id": 1, "at": "2026-10-20T16:05:00Z", "actor": 2, "kind": "intrigue", "game_id": 1, "figure_id": None, "squad_id": None,
                 "player_id": None, "amount": 2, "data": {"label": "Зои", "strategist": 1}, "comment": "Слухи о предателе", "reverted": False},
                {"id": 2, "at": "2026-10-20T16:10:00Z", "actor": 3, "kind": "squad_move", "game_id": 1, "figure_id": None, "squad_id": 3,
-                "player_id": None, "amount": 2, "data": {"action": "Перемещение", "tact": 1}, "comment": None, "reverted": False}],
+                "player_id": None, "amount": 2, "data": {"action": "Перемещение", "tact": 1}, "comment": None, "reverted": False},
+               {"id": 3, "at": "2026-10-20T15:00:00Z", "actor": 1, "kind": "squad_save", "game_id": 1, "figure_id": None, "squad_id": 3,
+                "player_id": None, "amount": None, "data": {"name": "Запас", "figures": [25]}, "comment": None, "reverted": False},
+               {"id": 4, "at": "2026-10-20T17:05:00Z", "actor": 1, "kind": "figure_state", "game_id": 1, "figure_id": 11, "squad_id": 1,
+                "player_id": None, "amount": None, "data": {"from": "ok", "to": "damaged"}, "comment": "Бой #1", "reverted": False}],
     "figure_conflicts": [], "trophies": [{"id": 1, "name": "Знамя", "description": "+2 к Силе", "bonus_s": 2, "bonus_l": 0, "bonus_v": 0, "squad_id": 2, "holder": None, "status": "active"}],
 }
 calls = []
@@ -144,11 +148,20 @@ with sync_playwright() as p:
         cls = page.locator(f".squads .squad:has(.name:text-is('{name}'))").first.get_attribute("class")
         return next((c[3:] for c in cls.split() if c.startswith("st-")), None)
     frames = {n: frame(n) for n in ("Волки", "Совы", "Запас", "Павшие")}
-    check("рамки: Волки зелёная, Совы жёлтая, Запас без цвета, Павшие красная",
-          frames == {"Волки": "active", "Совы": "done", "Запас": None, "Павшие": "destroyed"}, frames)
+    check("рамки: Волки зелёная, Совы жёлтая, Запас синяя (ждёт череда), Павшие красная",
+          frames == {"Волки": "active", "Совы": "done", "Запас": "waiting", "Павшие": "destroyed"}, frames)
+    page.locator(".squads .squad:has(.name:text-is('Волки')) a:has-text('Ладья-натиск')").first.click()
+    page.wait_for_selector("dialog[open] h2:has-text('Ладья-натиск')", timeout=10000)
+    dlg = page.locator("dialog").inner_text()
+    check("окно фигуры открылось на странице игры, адрес не сменился", page.evaluate("location.hash") == "#/game/1")
+    check("в истории фигуры — название отряда", "в отряде «Волки»" in dlg, dlg[-200:])
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+    check("после закрытия — снова страница игры", page.evaluate("location.hash") == "#/game/1" and page.locator("text=Статистика игры").count() == 1)
     stats = page.locator("section.card:has(h2:has-text('Статистика игры'))")
     st = stats.inner_text()
-    check("статистика игры: 7 фигур в отрядах", "7\nфигур в отрядах" in st, st[:80])
+    check("статистика: 8 фигур (7 сейчас + 1 выбывшая)", "8\nфигур в отрядах (сейчас и раньше)" in st, st[:120])
+    check("статистика: «выбыла из отряда» = 1", "1\nвыбыла из отряда" in st)
     check("статистика: состояние «повреждена» = 1", "1\nповреждена" in st)
     check("статистика: графики нарисованы", stats.locator("svg").count() >= 5, stats.locator("svg").count())
     if SHOTS: stats.screenshot(path=str(SHOTS / "stats.png"))
