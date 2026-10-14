@@ -1,7 +1,7 @@
 // Персонажи: Ресурсы (видны всем), доп. отряды за Влияние, число фигур; передача Ресурсов.
-import { rows, call, cache, session, isAdmin, loadRefs } from '../api.js';
-import { h, btn, modal, form, act, refresh } from '../ui.js';
-import { res } from './common.js';
+import { rows, call, cache, session, isAdmin, loadRefs } from '../api.js?v=202610142332';
+import { h, btn, modal, form, act, refresh } from '../ui.js?v=202610142332';
+import { res } from './common.js?v=202610142332';
 
 export default async function peopleView(root) {
   await loadRefs(true);

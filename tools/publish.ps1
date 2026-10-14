@@ -48,6 +48,16 @@ if ($Check) {
 }
 
 if ($changed) {
+    # Сброс кэша браузеров: у всех файлов сайта новый номер версии (?v=…), чтобы после публикации
+    # браузеры сразу брали новые файлы, а не держали старые до 10 минут.
+    $ver = "v=" + (Get-Date -Format "yyyyMMddHHmm")
+    $targets = @(Join-Path $site "index.html") + (Get-ChildItem (Join-Path $site "js") -Recurse -Filter *.js | ForEach-Object { $_.FullName })
+    foreach ($f in $targets) {
+        $txt = [IO.File]::ReadAllText($f)
+        $upd = [regex]::Replace($txt, '\?v=[0-9A-Za-z]+', "?$ver")
+        if ($upd -ne $txt) { [IO.File]::WriteAllText($f, $upd, (New-Object Text.UTF8Encoding $false)) }
+    }
+    git -C $site add -- $paths
     $msg = "$Message`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
     git -C $site commit --quiet -m $msg
     if ($LASTEXITCODE) { throw "git commit не удался" }

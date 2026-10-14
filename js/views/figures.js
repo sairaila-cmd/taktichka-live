@@ -1,7 +1,7 @@
 // Фигуры: таблица как в дашборде + карточка фигуры, история и правки по коду.
-import { rows, cache, session } from '../api.js';
-import { h, clear, btn, NOM_GLYPH, plural } from '../ui.js';
-import { openFigure, addFigure } from './figure-card.js';
+import { rows, cache, session } from '../api.js?v=202610142332';
+import { h, clear, btn, NOM_GLYPH, plural } from '../ui.js?v=202610142332';
+import { openFigure, addFigure } from './figure-card.js?v=202610142332';
 
 const COLS = [
   ['name', 'Фигура'], ['nominal', 'Номинал'], ['s', 'С', 'num'], ['l', 'Л', 'num'], ['v', 'В', 'num'],

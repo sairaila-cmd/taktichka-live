@@ -1,15 +1,15 @@
 // Тактичка онлайн: маршруты (#/…), вход по коду, отрисовка разделов.
-import { restore, login, logout, session, loadRefs, isAdmin } from './api.js';
-import { h, clear, toast } from './ui.js';
-import figuresView from './views/figures.js';
-import peopleView from './views/people.js';
-import gamesView from './views/games.js';
-import gameView from './views/game.js';
-import battleView from './views/battle.js';
-import rulesView from './views/rules.js';
-import logView from './views/log.js';
-import adminView from './views/admin.js';
-import helpView from './views/help.js';
+import { restore, login, logout, session, loadRefs, isAdmin } from './api.js?v=202610142332';
+import { h, clear, toast } from './ui.js?v=202610142332';
+import figuresView from './views/figures.js?v=202610142332';
+import peopleView from './views/people.js?v=202610142332';
+import gamesView from './views/games.js?v=202610142332';
+import gameView from './views/game.js?v=202610142332';
+import battleView from './views/battle.js?v=202610142332';
+import rulesView from './views/rules.js?v=202610142332';
+import logView from './views/log.js?v=202610142332';
+import adminView from './views/admin.js?v=202610142332';
+import helpView from './views/help.js?v=202610142332';
 
 const ROUTES = [
   [/^#?\/?$/, 'figures', figuresView],
