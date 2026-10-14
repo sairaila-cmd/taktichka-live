@@ -2,6 +2,7 @@
 import { rows, call, cache, session, isAdmin, watch, loadRefs } from '../api.js';
 import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js';
 import { logList, squadCard, pname, glyph, res } from './common.js';
+import { statsCard } from './stats.js';
 
 
 export default async function gameView(root, gameId) {
@@ -39,6 +40,7 @@ export default async function gameView(root, gameId) {
       strategistsCard(d), battlesCard(d),
       d.gifts.has('gorkaya') || d.echoes.length ? echoesCard(d) : null,
       isAdmin() ? adminCard(d) : null,
+      statsCard(d, gameId),
       h('section', { class: 'card' }, h('h2', {}, 'Журнал игры'), logList(d.events, d.maps)));
   }
 
@@ -159,18 +161,19 @@ export default async function gameView(root, gameId) {
       acts.push(btn('Изменить', () => buildSquad(d, sq), 'small'),
         btn('Распустить', () => confirmDo('Распустить отряд «' + sq.name + '»?', () => call('api_squad_delete', { p_squad: sq.id }), 'Отряд распущен'), 'small danger'));
     }
+    // Игрок действует отрядом только в свой черёд; ведущему кнопки доступны всегда.
+    const notNow = isAdmin() ? null : whyNotNow(d, sq, s);
+    const off = (b, why) => { if (why) { b.disabled = true; b.title = why; } return b; };
     if (mine && running && !sq.destroyed) {
       const tr = d.turnOf[sq.id] || {};
-      const fin = tr.finished;
-      const why = 'Ход отряда в этом ходу закончен';
-      const disabled = (b) => { if (fin) { b.disabled = true; b.title = why; } return b; };
-      acts.push(disabled(btn('Ход', () => move(d, sq), 'small')), disabled(btn('Напасть', () => attack(d, sq), 'small')),
-        btn('Свойство', () => useProperty(d, sq), 'small'), disabled(btn('Обмен', () => exchange(d, sq), 'small')),
-        btn('Оплатить', () => pay(d, sq), 'small'), btn('Эхо', () => echoMark(d, sq), 'small'));
-      if (d.gifts.has('alaya') && sq.rage > 0) acts.push(btn('Ярость', () => rage(d, sq), 'small'));
+      const fin = tr.finished ? 'Ход отряда в этом ходу закончен' : null;
+      acts.push(off(btn('Ход', () => move(d, sq), 'small'), notNow || fin), off(btn('Напасть', () => attack(d, sq), 'small'), notNow || fin),
+        off(btn('Свойство', () => useProperty(d, sq), 'small'), notNow), off(btn('Обмен', () => exchange(d, sq), 'small'), notNow || fin),
+        off(btn('Оплатить', () => pay(d, sq), 'small'), notNow), off(btn('Эхо', () => echoMark(d, sq), 'small'), notNow));
+      if (d.gifts.has('alaya') && sq.rage > 0) acts.push(off(btn('Ярость', () => rage(d, sq), 'small'), notNow));
     }
     if (mine && running) acts.push(btn('Состояние фигур', () => states(d, sq), 'small'));
-    if (mine && d.trophiesOf(sq.id).length) acts.push(btn('Трофеи', () => trophies(d, sq), 'small'));
+    if (mine && d.trophiesOf(sq.id).length) acts.push(off(btn('Трофеи', () => trophies(d, sq), 'small'), running ? notNow : null));
     if (mine && sq.destroyed && !sq.dead_figure) acts.push(btn('Кто погиб?', () => death(d, sq), 'small primary'));
     if (isAdmin() && d.game.status !== 'closed') {
       acts.push(btn('+ Трофей', () => giveTrophy(sq), 'small'));
@@ -183,6 +186,18 @@ export default async function gameView(root, gameId) {
       echo: sq.echo_id ? (d.echoById[sq.echo_id] ? d.echoById[sq.echo_id].name : (isAdmin() ? 'скрытое Эхо #' + sq.echo_id : null)) : null,
       inBattle: d.inBattle.has(sq.id),
     }, acts);
+  }
+
+  // Почему отряд игрока сейчас не может действовать (null — может).
+  function whyNotNow(d, sq, s) {
+    const t = d.turn;
+    if (!t || t.phase !== 'actions') return 'Сейчас не фаза действий';
+    if (t.current_strategist !== s.id) return 'Сейчас ходит ' + (t.current_strategist ? d.label(t.current_strategist) : 'другой стратег');
+    if (d.gifts.has('chernaya')) {
+      const other = d.movesList.find((m) => m.strategist_id === s.id && m.tact === t.tact && m.squad_id !== sq.id);
+      if (other) return 'Чёрная луна: в этом такте ходит «' + d.squadName(other.squad_id) + '»';
+    }
+    return null;
   }
 
   function battlesCard(d) {
@@ -418,7 +433,8 @@ export default async function gameView(root, gameId) {
       if (!['ok', 'damaged'].includes(sf.state)) return;
       (fig.properties || []).forEach((p) => {
         const pr = cache.propByName[p];
-        if (pr && pr.phase === 'Перемещение') opts.push([fig.id + '|' + p, fig.name + ': ' + p + (pr.cost ? ' (' + pr.cost + ' Р.)' : pr.cost_note ? ' (' + pr.cost_note + ' Р.)' : '')]);
+        if (pr && pr.phase === 'Перемещение') opts.push([fig.id + '|' + p, fig.name + ': ' + p + (pr.cost ? ' (' + pr.cost + ' Р.)' : pr.cost_note ? ' (' + pr.cost_note + ' Р.)' : '') +
+          (d.usedThisTurn.has(fig.id) ? ' — уже в этом ходу' : '')]);
       });
     });
     if (!opts.length) { toast('У фигур отряда нет свойств фазы Перемещения (боевые свойства — в бою).', true); return; }
@@ -654,6 +670,10 @@ async function load(gameId) {
     totals: Object.fromEntries(totals.map((t) => [t.squad_id, t])),
     moon: Object.fromEntries(moon.map((m) => [m.squad_id, m])),
     moves: Object.fromEntries(moves.map((m) => [m.squad_id, m.action + (m.act ? '' : ' …') + (m.tact > 1 ? ' (такт ' + m.tact + ')' : '')])),
+    movesList: moves,
+    // фигуры, уже применявшие свойство фазы Перемещения в этом ходу (раз в ход на фигуру)
+    usedThisTurn: new Set(turn ? events.filter((e) => e.kind === 'property_use' && !e.reverted && e.data && e.data.phase === 'Перемещение'
+      && Number(e.data.turn) === turn.number).map((e) => e.figure_id) : []),
     squadName: (id) => (squadById[id] ? squadById[id].name : '#' + id),
     money: (sid) => {
       const s = strategists.find((x) => x.id === sid);

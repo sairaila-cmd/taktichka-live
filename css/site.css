@@ -183,3 +183,20 @@ dialog .dlg h2 { margin: 0; font-family: var(--serif); font-weight: 400; color: 
 .foot { text-align: center; color: var(--muted); font-size: var(--small); margin: 0; }
 details > summary { cursor: pointer; color: var(--muted); font-size: var(--small); }
 .prop-desc { color: var(--muted); font-size: var(--small); }
+
+/* статистика игры: графики как в дашборде */
+.chart { position: relative; }
+.chart svg { display: block; overflow: visible; }
+.chart text { fill: var(--muted); font-size: 12px; font-family: var(--sans); }
+.chart text.strong { fill: var(--fg); }
+.chart line.grid { stroke: rgba(246, 242, 222, .10); }
+.chart line.axis { stroke: rgba(246, 242, 222, .35); }
+.chart-tip { position: absolute; pointer-events: none; background: var(--popover); border: 1px solid var(--line-strong);
+  border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); padding: 6px 10px; font-size: var(--small); z-index: 3; white-space: nowrap; }
+.chart-tip .t { color: var(--muted); margin-bottom: 2px; }
+.chart-tip .r { display: flex; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; }
+.chart-tip i, .chart-legend i, .tile.state i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: var(--small); color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.tile.big b { font-size: 40px; line-height: 1; }
+.tile.state b { display: inline-flex; align-items: center; gap: 8px; }

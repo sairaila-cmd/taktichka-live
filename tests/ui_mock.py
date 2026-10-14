@@ -91,7 +91,9 @@ def handle(route):
         body = json.loads(req.post_data or "{}")
         calls.append((fn, body))
         admin = body.get("p_code") == "admin-test"
+        rat = body.get("p_code") == "rat-test"
         result = {"api_whoami": {"id": 1, "name": "Ведущий", "characters": [], "is_admin": True} if admin else
+                  {"id": 3, "name": "Ратбургер", "characters": ["Ратбургер"], "is_admin": False} if rat else
                   {"id": 2, "name": "Зои", "characters": ["Зои"], "is_admin": False},
                   "api_admin_echoes": [dict(e) for e in T["echoes_public"]]}.get(fn)
         if fn == "api_roll": result = 7
@@ -136,6 +138,16 @@ with sync_playwright() as p:
     mine = page.locator("section.card:has(h2:has-text(\"Моё участие\"))")
     check("в «Моём участии» видны свои отряды с кнопками", mine.locator(".squad:has-text(\"Волки\")").count() == 1 and mine.locator("button:has-text(\"Ход\")").count() == 1)
     check("бой в списке", "«Волки» → «Совы»" in txt)
+    stats = page.locator("section.card:has(h2:has-text('Статистика игры'))")
+    st = stats.inner_text()
+    check("статистика игры: 7 фигур в отрядах", "7\nфигур в отрядах" in st, st[:80])
+    check("статистика: состояние «повреждена» = 1", "1\nповреждена" in st)
+    check("статистика: графики нарисованы", stats.locator("svg").count() >= 5, stats.locator("svg").count())
+    if SHOTS: stats.screenshot(path=str(SHOTS / "stats.png"))
+    check("статистика стоит перед журналом", page.evaluate("""() => { const hs = [...document.querySelectorAll('#view h2')].map(h => h.textContent);
+      return hs.indexOf('Статистика игры') === hs.indexOf('Журнал игры') - 1; }"""))
+    volki = page.locator("section.card:has(h2:has-text('Моё участие')) .squad:has-text('Волки')")
+    check("Зои в свой черёд: «Ход» у Волков активен", volki.locator("button:has-text('Ход')").is_enabled())
     check("у Зои есть кнопки отряда (в «Моём участии» и в общем списке)", page.locator("button:has-text('Напасть')").count() == 2)
     if SHOTS: page.screenshot(path=str(SHOTS / "game.png"), full_page=True)
     page.click("button:has-text('Ход') >> nth=0")
@@ -171,6 +183,18 @@ with sync_playwright() as p:
     check("кубик Волков теперь 9 (было 10)", page.locator(".side.attacker .die").inner_text() == "9")
     if SHOTS: page.screenshot(path=str(SHOTS / "battle-damage.png"), full_page=True)
 
+    print("\nРатбургер не в свой черёд")
+    page.evaluate("localStorage.setItem('taktichka.code', 'rat-test')")
+    page.add_init_script("localStorage.setItem('taktichka.code', 'rat-test')")
+    page.goto(BASE + "#/game/1"); page.reload()
+    page.wait_for_selector("text=Моё участие", timeout=20000)
+    sovy = page.locator("section.card:has(h2:has-text('Моё участие')) .squad:has-text('Совы')")
+    disabled = [n for n in ("Ход", "Напасть", "Свойство", "Обмен", "Оплатить", "Эхо") if not sovy.locator(f"button:has-text('{n}')").first.is_enabled()]
+    check("у Ратбургера серые Ход, Напасть, Свойство, Обмен, Оплатить, Эхо", len(disabled) == 6, disabled)
+    check("…и активна «Состояние фигур»", sovy.locator("button:has-text('Состояние фигур')").is_enabled())
+    check("подсказка «Сейчас ходит Зои»", sovy.locator("button:has-text('Ход')").get_attribute("title") == "Сейчас ходит Зои")
+    if SHOTS: sovy.screenshot(path=str(SHOTS / "rat-squad.png"))
+
     print("\nВедущий на странице игры")
     page.evaluate("localStorage.setItem('taktichka.code', 'admin-test')")
     page.add_init_script("localStorage.setItem('taktichka.code', 'admin-test')")
@@ -179,6 +203,7 @@ with sync_playwright() as p:
     check("кнопка «Добавить стратега…»", page.locator("button:has-text('Добавить стратега')").count() == 1)
     check("«+ Отряд» у каждого стратега", page.locator("button:has-text('+ Отряд')").count() == 2)
     check("ведущий может изменить отряд в идущей игре", page.locator("button:has-text('Изменить')").count() >= 3)
+    check("у ведущего «Ход» Сов активен (без ограничений)", page.locator(".squad:has-text('Совы') button:has-text('Ход')").first.is_enabled())
     page.click("button:has-text('+ Отряд') >> nth=1")
     page.wait_for_selector("dialog[open]")
     dt = page.locator("dialog").inner_text()

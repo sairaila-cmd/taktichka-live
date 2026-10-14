@@ -362,7 +362,10 @@ expect_ok("Ф остановился в Буре", "api_squad_echo", ANYA, af, e
 expect_err("Ф в Буре: Мобильность не работает", "api_property_use", ANYA, af, fig["Ферзь-1"], "Мобильность", None, None, None, None, contains="Эхо «Буря»")
 expect_ok("ПКЛ снаружи: Мобильность работает", "api_property_use", ANYA, pkl, fig["Пешка-запас"], "Мобильность", None, None, None, None)
 expect_ok("Ф ушёл из Бури", "api_squad_echo", ANYA, af, None, "left")
-expect_ok("после ухода — снова работает", "api_property_use", ANYA, af, fig["Ферзь-1"], "Мобильность", None, None, None, None)
+expect_err("Ферзь уже применял Мобильность в этом ходу", "api_property_use", ANYA, af, fig["Ферзь-1"], "Мобильность", None, None, None, None, contains="уже применяла свойство в этом ходу")
+expect_err("и ведущему тоже — раз в ход", "api_property_use", A, af, fig["Ферзь-1"], "Мобильность", None, None, None, None, contains="уже применяла")
+expect_ok("ход 4", "api_admin_turn_start", A, g3, None)
+expect_ok("после ухода из Бури и в новом ходу — снова работает", "api_property_use", ANYA, af, fig["Ферзь-1"], "Мобильность", None, None, None, None)
 expect_ok("Болото открыто и действует", "api_admin_echo", A, e2, g3, "Болото", "Движение +1 Ресурс", "active", "до 3-го хода", [], 1)
 before = sql("select resources from players where id=2")[0][0]
 expect_ok("ПКЛ прошёл через Болото", "api_squad_echo", ANYA, pkl, e2, "passed")

@@ -795,8 +795,10 @@ create or replace function api_property_use(p_code text, p_squad int, p_figure i
 language plpgsql security definer set search_path = public as $$
 declare me players := auth(p_code); s squads := require_strategist(me, p_squad);
   pr properties; cost int; r int; gain int := 0; fig figures; sf squad_figures; b battles;
+  turn_no int;   -- номер текущего хода (null — ходы не начаты)
 begin
   if (select status from games where id = s.game_id) <> 'running' then raise exception 'Игра не идёт'; end if;
+  select number into turn_no from turns where game_id = s.game_id order by number desc limit 1;
   select * into sf from squad_figures where squad_id = p_squad and figure_id = p_figure;
   if not found then raise exception 'Фигуры нет в этом отряде'; end if;
   if sf.state not in ('ok','damaged') then raise exception 'Фигура не в строю'; end if;
@@ -810,6 +812,13 @@ begin
   cost := coalesce(pr.cost, p_cost, 0);
   if pr.cost is null and p_cost is null then raise exception 'Укажите, сколько Ресурсов тратится'; end if;
   if p_property = 'Натиск' and cost not between 1 and 3 then raise exception 'Натиск: от 1 до 3 Ресурсов'; end if;
+  -- Свойство фазы Перемещения — не больше одного раза за ход на фигуру (любое из её свойств этой фазы).
+  -- Пока ходы на сайте не начаты, ограничения нет.
+  if p_battle is null and pr.phase = 'Перемещение' and turn_no is not null and exists (
+       select 1 from events where kind = 'property_use' and game_id = s.game_id and figure_id = p_figure
+         and not reverted and data->>'phase' = 'Перемещение' and (data->>'turn')::int = turn_no) then
+    raise exception 'Фигура «%» уже применяла свойство в этом ходу', fig.name;
+  end if;
 
   if p_battle is not null then
     select * into b from battles where id = p_battle;
@@ -852,7 +861,8 @@ begin
     values (p_battle, 'property', p_squad, p_figure, p_property, coalesce(p_params,'{}'), r, cost, me.id);
   end if;
   perform log_event(me.id, 'property_use', s.game_id, p_figure, p_squad, null, cost,
-    coalesce(p_params,'{}') || jsonb_build_object('property', p_property, 'roll', r, 'gain', gain, 'battle', p_battle),
+    coalesce(p_params,'{}') || jsonb_build_object('property', p_property, 'roll', r, 'gain', gain, 'battle', p_battle,
+      'phase', pr.phase, 'turn', turn_no),
     p_comment);
   return jsonb_build_object('cost', cost, 'roll', r, 'gain', gain);
 end $$;
