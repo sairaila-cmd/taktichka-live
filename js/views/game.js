@@ -679,7 +679,7 @@ async function load(gameId) {
     echoById: Object.fromEntries(echoes.map((e) => [e.id, e])),
     inBattle: new Set(battles.filter((b) => b.status === 'open').flatMap((b) => [b.attacker, b.defender])),
     // ход отряда в текущем ходу: { text, moved, finished }
-    turnOf: Object.fromEntries(moves.map((m) => [m.squad_id, { text: m.action + (m.tact > 1 ? ' (такт ' + m.tact + ')' : ''),
+    turnOf: Object.fromEntries(moves.map((m) => [m.squad_id, { text: m.action + (giftSet.has('chernaya') ? ' (такт ' + m.tact + ')' : ''),
       moved: !!m.movement, finished: !!m.act, tact: m.tact }])),
     myStrategist: mine ? strategists.find((s) => s.id === mine.strategist_id) : null,
     squadsOf: (sid) => squads.filter((s) => s.strategist_id === sid),
@@ -688,7 +688,7 @@ async function load(gameId) {
     trophiesOf: (sqid) => trophies.filter((t) => t.squad_id === sqid && t.status === 'active'),
     totals: Object.fromEntries(totals.map((t) => [t.squad_id, t])),
     moon: Object.fromEntries(moon.map((m) => [m.squad_id, m])),
-    moves: Object.fromEntries(moves.map((m) => [m.squad_id, m.action + (m.act ? '' : ' …') + (m.tact > 1 ? ' (такт ' + m.tact + ')' : '')])),
+    moves: Object.fromEntries(moves.map((m) => [m.squad_id, m.action + (m.act ? '' : ' …') + (giftSet.has('chernaya') ? ' (такт ' + m.tact + ')' : '')])),
     movesList: moves,
     lineup: lineup.filter((e) => !e.reverted),
     allSquadFigures: sfs,
