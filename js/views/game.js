@@ -85,6 +85,8 @@ export default async function gameView(root, gameId) {
         t && d.gifts.has('chernaya') ? badge('такт ' + t.tact + ' из ' + t.tacts, 'info') : null,
         t && t.current_strategist ? h('span', {}, 'Сейчас ходит: ', h('b', {}, d.label(t.current_strategist))) : null),
       orderList(d, t),
+      h('div', { class: 'frame-legend small' }, h('span', { class: 'fl active' }, 'может действовать'), h('span', { class: 'fl done' }, 'уже ходил в этом ходу'),
+        h('span', { class: 'fl destroyed' }, 'уничтожен')),
       intrigues.length ? h('div', { class: 'stack small' }, h('b', {}, 'Интриги этого хода'),
         intrigues.map((e) => h('div', {}, '◆ ', (e.data && e.data.label) || '', e.comment ? ': ' + e.comment : ''))) : null);
   }
@@ -184,8 +186,23 @@ export default async function gameView(root, gameId) {
       figs: d.figsOf(sq.id), trophies: d.trophiesOf(sq.id), totals: d.totals[sq.id], moon: d.moon[sq.id],
       moved: d.moves[sq.id], mine: d.myStrategist && d.myStrategist.id === s.id, gifts: d.gifts, figById: d.figById,
       echo: sq.echo_id ? (d.echoById[sq.echo_id] ? d.echoById[sq.echo_id].name : (isAdmin() ? 'скрытое Эхо #' + sq.echo_id : null)) : null,
+      status: squadStatus(d, sq),
       inBattle: d.inBattle.has(sq.id),
     }, acts);
+  }
+
+  // Рамка отряда (видна всем одинаково): destroyed — уничтожен, done — в этом ходу уже ходил,
+  // active — может действовать прямо сейчас, null — ждёт своего черёда.
+  function squadStatus(d, sq) {
+    if (sq.destroyed) return 'destroyed';
+    const tr = d.turnOf[sq.id];
+    if (tr && tr.finished) return 'done';
+    const t = d.turn;
+    if (d.game.status !== 'running' || !t || t.phase !== 'actions') return null;
+    if (tr && d.gifts.has('chernaya') && tr.tact < t.tact) return 'done';
+    if (t.current_strategist !== sq.strategist_id) return null;
+    if (d.gifts.has('chernaya') && d.movesList.some((m) => m.strategist_id === sq.strategist_id && m.tact === t.tact && m.squad_id !== sq.id)) return null;
+    return 'active';
   }
 
   // Почему отряд игрока сейчас не может действовать (null — может).
@@ -661,7 +678,7 @@ async function load(gameId) {
     inBattle: new Set(battles.filter((b) => b.status === 'open').flatMap((b) => [b.attacker, b.defender])),
     // ход отряда в текущем ходу: { text, moved, finished }
     turnOf: Object.fromEntries(moves.map((m) => [m.squad_id, { text: m.action + (m.tact > 1 ? ' (такт ' + m.tact + ')' : ''),
-      moved: !!m.movement, finished: !!m.act }])),
+      moved: !!m.movement, finished: !!m.act, tact: m.tact }])),
     myStrategist: mine ? strategists.find((s) => s.id === mine.strategist_id) : null,
     squadsOf: (sid) => squads.filter((s) => s.strategist_id === sid),
     figsOf: (sqid) => sfs.filter((x) => x.squad_id === sqid).map((sf) => ({ sf, fig: figById[sf.figure_id] })).filter((x) => x.fig)

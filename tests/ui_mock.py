@@ -37,7 +37,8 @@ T = {
     "strategist_members": [{"strategist_id": 1, "game_id": 1, "player_id": 2}, {"strategist_id": 2, "game_id": 1, "player_id": 3}],
     "squads": [{"id": 1, "game_id": 1, "strategist_id": 1, "name": "Волки", "name_key": "волки", "destroyed": False, "dead_figure": None, "rage": 1},
                {"id": 2, "game_id": 1, "strategist_id": 2, "name": "Совы", "name_key": "совы", "destroyed": False, "dead_figure": None, "rage": 0, "echo_id": 1},
-               {"id": 3, "game_id": 1, "strategist_id": 2, "name": "Запас", "name_key": "запас", "destroyed": False, "dead_figure": None, "rage": 0}],
+               {"id": 3, "game_id": 1, "strategist_id": 2, "name": "Запас", "name_key": "запас", "destroyed": False, "dead_figure": None, "rage": 0},
+               {"id": 4, "game_id": 1, "strategist_id": 2, "name": "Павшие", "name_key": "павшие", "destroyed": True, "dead_figure": None, "rage": 0}],
     "squad_figures": [{"squad_id": 1, "figure_id": f, "game_id": 1, "strategist_id": 1, "state": "ok", "borrowed": False} for f in (11, 12, 13)] +
                      [{"squad_id": 2, "figure_id": f, "game_id": 1, "strategist_id": 2, "state": "ok", "borrowed": False} for f in (21, 22, 23)] +
                      [{"squad_id": 3, "figure_id": 24, "game_id": 1, "strategist_id": 2, "state": "damaged", "borrowed": False}],
@@ -47,7 +48,8 @@ T = {
     "squad_moon": [{"squad_id": 1, "game_id": 1, "white_streak": False, "duplicate_nominals": 0},
                    {"squad_id": 2, "game_id": 1, "white_streak": False, "duplicate_nominals": 0}],
     "turns": [{"id": 1, "game_id": 1, "number": 2, "phase": "actions", "tacts": 2, "tact": 1, "current_strategist": 1}],
-    "squad_moves": [{"turn_id": 1, "squad_id": 3, "strategist_id": 2, "tact": 1, "action": "Перемещение", "movement": "Перемещение", "act": None}],
+    "squad_moves": [{"turn_id": 1, "squad_id": 3, "strategist_id": 2, "tact": 1, "action": "Перемещение", "movement": "Перемещение", "act": None},
+                    {"turn_id": 1, "squad_id": 2, "strategist_id": 2, "tact": 1, "action": "Нападение", "movement": None, "act": "Нападение"}],
     "battles": [{"id": 1, "game_id": 1, "attacker": 1, "defender": 2, "status": "open", "winner": None, "result": None, "opened_by": 2, "created_at": "2026-10-20T17:00:00Z"}],
     "battle_actions": [
         {"id": 1, "battle_id": 1, "kind": "property", "squad_id": 2, "figure_id": 23, "property": "Всем друг", "params": {"phase": "Условие"}, "roll": None, "cost": 0},
@@ -138,6 +140,12 @@ with sync_playwright() as p:
     mine = page.locator("section.card:has(h2:has-text(\"Моё участие\"))")
     check("в «Моём участии» видны свои отряды с кнопками", mine.locator(".squad:has-text(\"Волки\")").count() == 1 and mine.locator("button:has-text(\"Ход\")").count() == 1)
     check("бой в списке", "«Волки» → «Совы»" in txt)
+    def frame(name):
+        cls = page.locator(f".squads .squad:has(.name:text-is('{name}'))").first.get_attribute("class")
+        return next((c[3:] for c in cls.split() if c.startswith("st-")), None)
+    frames = {n: frame(n) for n in ("Волки", "Совы", "Запас", "Павшие")}
+    check("рамки: Волки зелёная, Совы жёлтая, Запас без цвета, Павшие красная",
+          frames == {"Волки": "active", "Совы": "done", "Запас": None, "Павшие": "destroyed"}, frames)
     stats = page.locator("section.card:has(h2:has-text('Статистика игры'))")
     st = stats.inner_text()
     check("статистика игры: 7 фигур в отрядах", "7\nфигур в отрядах" in st, st[:80])
@@ -193,6 +201,7 @@ with sync_playwright() as p:
     check("у Ратбургера серые Ход, Напасть, Свойство, Обмен, Оплатить, Эхо", len(disabled) == 6, disabled)
     check("…и активна «Состояние фигур»", sovy.locator("button:has-text('Состояние фигур')").is_enabled())
     check("подсказка «Сейчас ходит Зои»", sovy.locator("button:has-text('Ход')").get_attribute("title") == "Сейчас ходит Зои")
+    check("у Ратбургера те же рамки", frame("Волки") == "active" and frame("Совы") == "done")
     if SHOTS: sovy.screenshot(path=str(SHOTS / "rat-squad.png"))
 
     print("\nВедущий на странице игры")
@@ -200,10 +209,11 @@ with sync_playwright() as p:
     page.add_init_script("localStorage.setItem('taktichka.code', 'admin-test')")
     page.goto(BASE + "#/game/1"); page.reload()
     page.wait_for_selector("text=Ведущему", timeout=20000)
+    check("у ведущего те же рамки", frame("Волки") == "active" and frame("Павшие") == "destroyed")
     check("кнопка «Добавить стратега…»", page.locator("button:has-text('Добавить стратега')").count() == 1)
     check("«+ Отряд» у каждого стратега", page.locator("button:has-text('+ Отряд')").count() == 2)
     check("ведущий может изменить отряд в идущей игре", page.locator("button:has-text('Изменить')").count() >= 3)
-    check("у ведущего «Ход» Сов активен (без ограничений)", page.locator(".squad:has-text('Совы') button:has-text('Ход')").first.is_enabled())
+    check("у ведущего «Ход» Запаса активен (не его черёд — ведущему можно)", page.locator(".squads .squad:has(.name:text-is('Запас')) button:has-text('Ход')").first.is_enabled())
     page.click("button:has-text('+ Отряд') >> nth=1")
     page.wait_for_selector("dialog[open]")
     dt = page.locator("dialog").inner_text()

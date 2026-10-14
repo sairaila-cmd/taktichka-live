@@ -376,6 +376,22 @@ print("    видно игрокам:", sql("select name, status from echoes_pub
 expect_ok("оплата 1 Ресурсом", "api_pay", ANYA, pkl, 1, "Болото")
 expect_err("оплата больше баланса", "api_pay", ANYA, pkl, 100, "Болото", contains="Не хватает")
 
+print("\nЧёрная луна: отряд, ходивший в прошлом такте, больше не действует")
+expect_ok("включить Чёрную луну", "api_admin_gift", A, g3, "chernaya", True)
+expect_ok("ход 5 (2 такта)", "api_admin_turn_start", A, g3, 2)
+expect_ok("действия", "api_admin_turn_actions", A, g3)
+expect_ptr("ход 5: первой ходит Аня", "аня", 1)
+expect_ok("Аня: ПКЛ только перемещается", "api_squad_move", ANYA, pkl, "Перемещение", None)
+expect_ok("Аня пропускает такт", "api_pass_turn", ANYA, g3)
+mv = sql("select act from squad_moves m join turns t on t.id=m.turn_id where t.game_id=%s and t.number=5 and m.squad_id=%s", g3, pkl)
+if mv and mv[0][0] == "Такт закончился": ok += 1; print("  ✓ ход ПКЛ закрыт, когда такт ушёл от Ани")
+else: fail += 1; print("  ✗ ход ПКЛ:", mv)
+for _ in range(3):   # остальные пропускают такт 1
+    if pointer()[0] != sid["аня"]: call("api_pass_turn", A, g3)
+expect_ptr("такт 2 — снова Аня", "аня", 2)
+expect_err("ПКЛ в такте 2 — нельзя", "api_squad_move", ANYA, pkl, "Активация фишки", None, contains="уже закончен")
+expect_ok("Аня ходит другим отрядом (Ф)", "api_squad_move", ANYA, af, "Активация фишки", None)
+expect_ok("выключить Чёрную луну", "api_admin_gift", A, g3, "chernaya", False)
 print("\nРесурсы напарников (пара Вера + Гоша в идущей игре)")
 w0 = sql("select wallet from strategists where id=%s", sid["пара"])[0][0]
 expect_ok("ведущий начисляет Вере 5", "api_admin_resources", A, 4, 5, None)

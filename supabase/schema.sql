@@ -1226,6 +1226,12 @@ language plpgsql security definer set search_path = public as $$
 declare t turns; cur_pos int; nxt int;
 begin
   select * into t from turns where id = p_turn for update;
+  -- Чёрная луна: отряд, которым стратег ходил в этом такте, в следующих тактах хода больше не действует —
+  -- незаконченный ход (например, только Перемещение) закрывается, когда такт уходит от стратега.
+  if has_gift(t.game_id, 'chernaya') and t.current_strategist is not null then
+    update squad_moves set act = 'Такт закончился', action = concat_ws(' → ', movement, 'Такт закончился')
+      where turn_id = p_turn and strategist_id = t.current_strategist and act is null;
+  end if;
   select pos into cur_pos from turn_order(t.game_id) where strategist_id = t.current_strategist;
   cur_pos := coalesce(cur_pos, 0);
   if not has_gift(t.game_id, 'chernaya') then
@@ -1374,6 +1380,9 @@ begin
   chern := has_gift(s.game_id, 'chernaya');
   select * into m from squad_moves where turn_id = t.id and squad_id = p_squad;
   if m.act is not null then raise exception 'Ход отряда «%» в этом ходу уже закончен', s.name; end if;
+  if chern and m.squad_id is not null and m.tact < t.tact then
+    raise exception 'Отряд «%» уже ходил в такте % этого хода', s.name, m.tact;
+  end if;
   if chern and m.squad_id is null then
     select q.name into other from squad_moves mm join squads q on q.id = mm.squad_id
       where mm.turn_id = t.id and mm.strategist_id = s.strategist_id and mm.tact = t.tact and mm.squad_id <> p_squad limit 1;

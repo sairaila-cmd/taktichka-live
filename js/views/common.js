@@ -99,9 +99,9 @@ export function squadCard(sq, o, actions) {
   if (gifts.has('belaya') && o.moon && o.moon.duplicate_nominals > 0) tags.push(h('span', { class: 'badge warn', title: 'Белая луна: штраф к Лояльности при попытке переманить' }, 'повторы номиналов: ' + o.moon.duplicate_nominals));
   if (sq.dead_figure) tags.push(h('span', { class: 'badge' }, 'погибла: ' + ((o.figById && o.figById[sq.dead_figure]) ? o.figById[sq.dead_figure].name : '#' + sq.dead_figure)));
   const t = o.totals || { s: 0, l: 0, v: 0 };
-  return h('article', { class: 'squad' + (o.mine ? ' mine' : '') + (sq.destroyed ? ' destroyed' : '') },
+  return h('article', { class: 'squad' + (o.mine ? ' mine' : '') + (sq.destroyed ? ' destroyed' : '') + (o.status ? ' st-' + o.status : '') },
     h('div', { class: 'row', style: 'justify-content: space-between' },
-      h('span', { class: 'name' }, sq.name),
+      h('span', { class: 'name' }, sq.name, o.mine ? h('span', { class: 'badge moon', style: 'margin-left: 8px' }, 'ваш') : null),
       h('span', { class: 'stats small' }, 'С ', h('b', {}, t.s), ' Л ', h('b', {}, t.l), ' В ', h('b', {}, t.v))),
     tags.length ? h('div', { class: 'row' }, tags) : null,
     h('ul', { class: 'figs' }, o.figs.map(({ fig, sf }) => h('li', { class: 'st-' + sf.state },
