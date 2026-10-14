@@ -193,6 +193,8 @@ export default async function battleView(root, battleId) {
       if (taken) items.push(h('p', { class: 'muted small', style: 'margin:0; text-align:center' }, 'Трофей за этот бой уже забран.'));
       if (d.gifts.has('alaya')) items.push(h('p', { class: 'muted small', style: 'margin:0; text-align:center' }, 'Алая луна: проигравший получил +1 Ярость, победитель потерял накопленную.'));
     }
+    items.push(h('div', { class: 'row', style: 'justify-content:center' },
+      btn('Вернуться к игре', () => { location.hash = '#/game/' + b.game_id; }, 'primary')));
     return h('section', { class: 'card' }, h('h2', {}, 'Итог боя'), items);
   }
 

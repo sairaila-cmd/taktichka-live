@@ -242,6 +242,15 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     if SHOTS: page.screenshot(path=str(SHOTS / "game-admin.png"), full_page=True)
 
+    # закрытый бой: кнопка «Вернуться к игре»
+    T["battles"][0].update(status="closed", winner=1, result={"reason": "Сила + кубик", "totals": {"attacker": 22, "defender": 20}})
+    page.goto(BASE + "#/battle/1")
+    page.wait_for_selector("text=Итог боя", timeout=10000)
+    check("после боя есть кнопка «Вернуться к игре»", page.locator("button:has-text('Вернуться к игре')").count() == 1)
+    page.click("button:has-text('Вернуться к игре')")
+    page.wait_for_selector("text=Статистика игры", timeout=20000)
+    check("кнопка ведёт на страницу игры", page.evaluate("location.hash") == "#/game/1")
+    T["battles"][0].update(status="open", winner=None, result=None)
     print("\nТелефон")
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(BASE + "#/game/1")
