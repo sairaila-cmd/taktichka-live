@@ -1,15 +1,15 @@
 // Тактичка онлайн: маршруты (#/…), вход по коду, отрисовка разделов.
-import { restore, login, logout, session, loadRefs, isAdmin } from './api.js?v=202610151204';
-import { h, clear, toast } from './ui.js?v=202610151204';
-import figuresView from './views/figures.js?v=202610151204';
-import peopleView from './views/people.js?v=202610151204';
-import gamesView from './views/games.js?v=202610151204';
-import gameView from './views/game.js?v=202610151204';
-import battleView from './views/battle.js?v=202610151204';
-import rulesView from './views/rules.js?v=202610151204';
-import logView from './views/log.js?v=202610151204';
-import adminView from './views/admin.js?v=202610151204';
-import helpView from './views/help.js?v=202610151204';
+import { restore, login, logout, session, loadRefs, isAdmin } from './api.js?v=202610151325';
+import { h, clear, toast } from './ui.js?v=202610151325';
+import figuresView from './views/figures.js?v=202610151325';
+import peopleView from './views/people.js?v=202610151325';
+import gamesView from './views/games.js?v=202610151325';
+import gameView from './views/game.js?v=202610151325';
+import battleView from './views/battle.js?v=202610151325';
+import rulesView from './views/rules.js?v=202610151325';
+import logView from './views/log.js?v=202610151325';
+import adminView from './views/admin.js?v=202610151325';
+import helpView from './views/help.js?v=202610151325';
 
 const ROUTES = [
   [/^#?\/?$/, 'figures', figuresView],
@@ -77,4 +77,6 @@ session.listeners.add(() => { renderWho(); render(); });
 window.addEventListener('hashchange', render);
 window.addEventListener('taktichka:refresh', render);
 renderWho();
-restore().finally(() => { renderWho(); render(); });
+restore()
+  .catch((e) => toast('Не удалось восстановить вход: ' + (e.message || String(e)), true))
+  .finally(() => { renderWho(); render(); });

@@ -1,10 +1,12 @@
 // Список игр; ведущий создаёт новую.
-import { rows, call, isAdmin } from '../api.js?v=202610151204';
-import { h, btn, modal, form, act, fmtTime, STATUS_RU, GIFT_RU, plural } from '../ui.js?v=202610151204';
+import { rowsAll, call, isAdmin } from '../api.js?v=202610151325';
+import { h, btn, modal, form, act, fmtTime, STATUS_RU, GIFT_RU, plural } from '../ui.js?v=202610151325';
 
 export default async function gamesView(root) {
   const [games, strategists, gifts] = await Promise.all([
-    rows('games', (q) => q.order('id', { ascending: false })), rows('strategists', (q) => q, 'id, game_id'), rows('game_gifts'),
+    rowsAll('games', (q) => q.order('id', { ascending: false })),
+    rowsAll('strategists', (q) => q.order('id'), 'id, game_id'),
+    rowsAll('game_gifts', (q) => q.order('game_id').order('gift')),
   ]);
   const actions = isAdmin() ? [btn('+ Новая игра', create, 'primary')] : [];
   root.append(

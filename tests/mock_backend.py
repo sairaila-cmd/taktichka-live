@@ -5,6 +5,7 @@
   T      — таблицы (меняются на месте прямо в проверке; reset() возвращает исходные)
   calls  — [(имя api_*, тело запроса)] по порядку
   FAIL   — {"api_…": "текст"}: вызов ответит ошибкой базы с этим текстом
+  FAIL_STATUS — {"api_…": {"status": код, "code": код, "message": текст}}: HTTP/API ошибка
   RESULT — {"api_…": значение}: что вернёт вызов (по умолчанию null)
 Коды входа: admin-test — Ведущий, rat-test — Ратбургер, lub-test — Любомир,
 samum-test — Самум, bad-code — «Неверный код»; любой другой — Зои.
@@ -76,7 +77,9 @@ BASE = {
 }
 T = copy.deepcopy(BASE)
 calls = []
+read_calls = []
 FAIL = {}
+FAIL_STATUS = {}
 RESULT = {}
 WHO = {"admin-test": 1, "rat-test": 3, "lub-test": 4, "samum-test": 5}
 
@@ -84,7 +87,7 @@ WHO = {"admin-test": 1, "rat-test": 3, "lub-test": 4, "samum-test": 5}
 def reset():
     """Вернуть таблицы к исходным, очистить журнал вызовов и подставленные ответы."""
     T.clear(); T.update(copy.deepcopy(BASE))
-    calls.clear(); FAIL.clear(); RESULT.clear()
+    calls.clear(); read_calls.clear(); FAIL.clear(); FAIL_STATUS.clear(); RESULT.clear()
 
 
 def filt(rows, qs):
@@ -127,6 +130,11 @@ def handle(route):
         calls.append((fn, body))
         if fn == "api_whoami" and body.get("p_code") == "bad-code":
             return error(route, "Неверный код")
+        if fn in FAIL_STATUS:
+            failure = FAIL_STATUS[fn]
+            return route.fulfill(status=failure["status"], content_type="application/json",
+                                 body=json.dumps({"code": failure["code"], "message": failure["message"],
+                                                  "details": None, "hint": None}, ensure_ascii=False))
         if fn in FAIL:
             return error(route, FAIL[fn])
         if fn in RESULT: result = RESULT[fn]
@@ -135,11 +143,14 @@ def handle(route):
         elif fn == "api_roll": result = 7
         else: result = None
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(result, ensure_ascii=False))
+    if req.method == "GET":
+        read_calls.append(path)
     qs = urllib.parse.parse_qs(u.query)
     rows = filt(T.get(path, []), qs)
-    # .range()/.limit(): порядок строк — как в фикстуре (сортировку мок не делает)
+    # Supabase caps responses at 1000 rows; range/limit pagination follows fixture order.
     start = int(qs.get("offset", ["0"])[0])
-    rows = rows[start:start + int(qs["limit"][0])] if "limit" in qs else rows[start:]
+    limit = min(int(qs.get("limit", ["1000"])[0]), 1000)
+    rows = rows[start:start + limit]
     route.fulfill(status=200, content_type="application/json", body=json.dumps(rows, ensure_ascii=False))
 
 
@@ -157,8 +168,15 @@ def serve():
 def attach(page, errors):
     """Подменить Supabase для страницы и собирать ошибки консоли (кроме Realtime)."""
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.on("console", lambda m: m.type == "error" and "WebSocket" not in m.text and "realtime" not in m.text.lower()
-            and "status of 400" not in m.text and errors.append(m.text))
+    def on_console(message):
+        if message.type != "error" or "WebSocket" in message.text or "realtime" in message.text.lower():
+            return
+        if "status of 400" in message.text:
+            return
+        if "status of 503" in message.text and any(failure["status"] == 503 for failure in FAIL_STATUS.values()):
+            return
+        errors.append(message.text)
+    page.on("console", on_console)
     page.route("**/rest/v1/**", handle)
     page.route("**/realtime/**", lambda r: r.abort())
 

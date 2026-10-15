@@ -1,8 +1,8 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, call, cache, session, isAdmin, watch, loadRefs } from '../api.js?v=202610151204';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610151204';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610151204';
-import { statsCard } from './stats.js?v=202610151204';
+import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610151325';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610151325';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610151325';
+import { statsCard } from './stats.js?v=202610151325';
 
 
 export default async function gameView(root, gameId) {
@@ -634,25 +634,34 @@ export default async function gameView(root, gameId) {
 
 // ───────── загрузка данных игры ─────────
 async function load(gameId) {
-  await loadRefs(true);   // Ресурсы и бонусы игроков меняются по ходу игры
-  const byGame = (t, cols) => rows(t, (q) => q.eq('game_id', gameId), cols);
-  const [games, gifts, strategists, members, squads, sfs, totals, moon, turns, battles, echoes, events, figures, owners, conflicts, kept, lineup] = await Promise.all([
-    rows('games', (q) => q.eq('id', gameId)), byGame('game_gifts'), byGame('strategists'), byGame('strategist_members'),
-    rows('squads', (q) => q.eq('game_id', gameId).order('id')), byGame('squad_figures'), byGame('squad_totals'), byGame('squad_moon'),
+  await loadPlayers(true);   // Ресурсы и бонусы игроков меняются по ходу игры
+  const byGame = (t, cols, order = (q) => q.order('id')) =>
+    rowsAll(t, (q) => order(q.eq('game_id', gameId)), cols);
+  const [games, gifts, strategists, members, squads, sfs, totals, moon, turns, battles, echoes, events, figures, owners, conflicts, kept, lineup, propertyUses] = await Promise.all([
+    rows('games', (q) => q.eq('id', gameId)),
+    byGame('game_gifts', undefined, (q) => q.order('gift')),
+    byGame('strategists'), byGame('strategist_members', undefined, (q) => q.order('strategist_id').order('player_id')),
+    byGame('squads'), byGame('squad_figures', undefined, (q) => q.order('squad_id').order('figure_id')),
+    byGame('squad_totals', undefined, (q) => q.order('squad_id')),
+    byGame('squad_moon', undefined, (q) => q.order('squad_id')),
     rows('turns', (q) => q.eq('game_id', gameId).order('number', { ascending: false }).limit(1)),
-    rows('battles', (q) => q.eq('game_id', gameId).order('id', { ascending: false })),
-    rows('echoes_public', (q) => q.eq('game_id', gameId).order('id')),
+    byGame('battles', undefined, (q) => q.order('id', { ascending: false })),
+    byGame('echoes_public'),
     rows('events', (q) => q.eq('game_id', gameId).order('at', { ascending: false }).limit(200)),
-    rows('figures', (q) => q.order('name')), rows('figure_owners'),
-    rows('figure_conflicts', (q) => q.eq('game_id', gameId)),
-    rows('trophies', (q) => q.eq('status', 'kept')),
+    rowsAll('figures', (q) => q.order('name')),
+    rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
+    rowsAll('figure_conflicts', (q) => q.eq('game_id', gameId).order('figure_id')),
+    rowsAll('trophies', (q) => q.eq('status', 'kept').order('id')),
     // история составов: какие фигуры когда-либо стояли в отрядах игры (для статистики)
-    rows('events', (q) => q.eq('game_id', gameId).in('kind', ['squad_save', 'figure_move']).order('at'), 'kind, squad_id, figure_id, data, at, reverted'),
+    rowsAll('events', (q) => q.eq('game_id', gameId).in('kind', ['squad_save', 'figure_move']).order('at').order('id'),
+      'kind, squad_id, figure_id, data, at, reverted'),
+    rowsAll('events', (q) => q.eq('game_id', gameId).eq('kind', 'property_use').order('at').order('id'),
+      'figure_id, data, reverted'),
   ]);
   const squadIds = squads.map((s) => s.id);
-  const trophies = squadIds.length ? await rows('trophies', (q) => q.in('squad_id', squadIds)) : [];
+  const trophies = squadIds.length ? await rowsAll('trophies', (q) => q.in('squad_id', squadIds).order('id')) : [];
   const turn = turns[0] || null;
-  const moves = turn ? await rows('squad_moves', (q) => q.eq('turn_id', turn.id)) : [];
+  const moves = turn ? await rowsAll('squad_moves', (q) => q.eq('turn_id', turn.id).order('squad_id')) : [];
   const figById = Object.fromEntries(figures.map((f) => [f.id, f]));
   const ownersOf = {};
   owners.forEach((o) => { (ownersOf[o.figure_id] = ownersOf[o.figure_id] || []).push(o.player_id); });
@@ -693,7 +702,7 @@ async function load(gameId) {
     lineup: lineup.filter((e) => !e.reverted),
     allSquadFigures: sfs,
     // фигуры, уже применявшие свойство фазы Перемещения в этом ходу (раз в ход на фигуру)
-    usedThisTurn: new Set(turn ? events.filter((e) => e.kind === 'property_use' && !e.reverted && e.data && e.data.phase === 'Перемещение'
+    usedThisTurn: new Set(turn ? propertyUses.filter((e) => !e.reverted && e.data && e.data.phase === 'Перемещение'
       && Number(e.data.turn) === turn.number).map((e) => e.figure_id) : []),
     squadName: (id) => (squadById[id] ? squadById[id].name : '#' + id),
     money: (sid) => {

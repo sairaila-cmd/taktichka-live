@@ -58,7 +58,7 @@ if ($changed) {
         if ($upd -ne $txt) { [IO.File]::WriteAllText($f, $upd, (New-Object Text.UTF8Encoding $false)) }
     }
     git -C $site add -- $paths
-    $msg = "$Message`n`nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+    $msg = "$Message`n`nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
     git -C $site commit --quiet -m $msg
     if ($LASTEXITCODE) { throw "git commit не удался" }
 }

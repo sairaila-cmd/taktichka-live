@@ -1,7 +1,7 @@
 // Помощник боя: очередь фигур, свойства по фазам, Сила, броски, исход; вживую у обоих игроков.
-import { rows, call, cache, session, isAdmin, watch } from '../api.js?v=202610151204';
-import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610151204';
-import { glyph, pname, figLink } from './common.js?v=202610151204';
+import { rows, rowsAll, call, cache, session, isAdmin, watch } from '../api.js?v=202610151325';
+import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610151325';
+import { glyph, pname, figLink } from './common.js?v=202610151325';
 
 const SIDE_RU = { attacker: 'нападает', defender: 'защищается' };
 const HINTS = {
@@ -259,12 +259,12 @@ async function load(battleId) {
   const [squads, sfs, trophies, moon, actions, gifts, echoes, members, games, takes] = await Promise.all([
     rows('squads', (q) => q.in('id', ids)), rows('squad_figures', (q) => q.in('squad_id', ids)),
     rows('trophies', (q) => q.in('squad_id', ids).eq('status', 'active')), rows('squad_moon', (q) => q.in('squad_id', ids)),
-    rows('battle_actions', (q) => q.eq('battle_id', battleId).order('id')),
+    rowsAll('battle_actions', (q) => q.eq('battle_id', battleId).order('id')),
     rows('game_gifts', (q) => q.eq('game_id', battle.game_id)),
     rows('echoes_public', (q) => q.eq('game_id', battle.game_id).eq('status', 'active')),
     rows('strategist_members', (q) => q.eq('game_id', battle.game_id)),
     rows('games', (q) => q.eq('id', battle.game_id)),
-    rows('events', (q) => q.eq('kind', 'trophy_take').eq('game_id', battle.game_id)),
+    rowsAll('events', (q) => q.eq('kind', 'trophy_take').eq('game_id', battle.game_id).order('id'), 'data'),
   ]);
   const figures = sfs.length ? await rows('figures', (q) => q.in('id', sfs.map((s) => s.figure_id))) : [];
   const figById = Object.fromEntries(figures.map((f) => [f.id, f]));

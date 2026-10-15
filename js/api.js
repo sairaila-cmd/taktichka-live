@@ -1,5 +1,5 @@
 // Связь с базой: чтение таблиц, вызовы api_* с личным кодом, подписки на изменения.
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610151204';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610151325';
 
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -13,7 +13,7 @@ function storeSet(v) { try { v ? localStorage.setItem(CODE_KEY, v) : localStorag
 
 export async function login(code) {
   const { data, error } = await sb.rpc('api_whoami', { p_code: code });
-  if (error) throw new Error(error.message);
+  if (error) throw Object.assign(new Error(error.message), { code: error.code, status: error.status });
   session.code = code; session.me = data; storeSet(code);
   session.listeners.forEach((f) => f());
   return data;
@@ -25,7 +25,15 @@ export function logout() {
 export async function restore() {
   const code = storeGet();
   if (!code) return null;
-  try { return await login(code); } catch { storeSet(null); return null; }
+  try {
+    return await login(code);
+  } catch (error) {
+    if (error.code === 'P0001' && error.message === 'Неверный код') {
+      storeSet(null);
+      return null;
+    }
+    throw error;
+  }
 }
 export const isAdmin = () => !!(session.me && session.me.is_admin);
 
@@ -44,6 +52,17 @@ export async function rows(table, build = (q) => q, columns = '*') {
   return data || [];
 }
 
+// Supabase REST responses are capped at 1000 rows; fetch remaining pages for complete datasets.
+export async function rowsAll(table, build = (q) => q, columns = '*') {
+  const pageSize = 1000;
+  const all = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await rows(table, (q) => build(q).range(offset, offset + pageSize - 1), columns);
+    all.push(...page);
+    if (page.length < pageSize) return all;
+  }
+}
+
 // Подписка на изменения таблиц (Realtime); возвращает функцию отписки.
 export function watch(name, tables, onChange) {
   let ch = sb.channel(name + ':' + Math.random().toString(36).slice(2));
@@ -55,20 +74,50 @@ export function watch(name, tables, onChange) {
   return () => { sb.removeChannel(ch); };
 }
 
-// Общие справочники (кэш на время открытой страницы, обновляется по запросу).
+// Общие данные (справочники кэшируются, игроки можно обновить отдельно).
 export const cache = { players: null, properties: null, nominals: null };
-export async function loadRefs(force = false) {
-  if (force || !cache.players) {
-    const [players, properties, nominals] = await Promise.all([
-      rows('players', (q) => q.order('name')),
-      rows('properties', (q) => q.order('name')),
-      rows('nominals', (q) => q.order('rank', { ascending: false })),
-    ]);
+let playersRequest = null;
+let refsRequest = null;
+
+export function loadPlayers(force = false) {
+  if (playersRequest) return playersRequest;
+  if (!force && cache.players) return Promise.resolve(cache.players);
+  const request = rowsAll('players', (q) => q.order('name')).then((players) => {
     Object.assign(cache, {
-      players, properties, nominals,
+      players,
       playerById: Object.fromEntries(players.map((p) => [p.id, p])),
+    });
+    return players;
+  });
+  playersRequest = request;
+  request.then(
+    () => { if (playersRequest === request) playersRequest = null; },
+    () => { if (playersRequest === request) playersRequest = null; },
+  );
+  return request;
+}
+
+export async function loadRefs(force = false) {
+  if (refsRequest) return refsRequest;
+  if (!force && cache.properties && cache.nominals) {
+    await loadPlayers();
+    return cache;
+  }
+  const request = Promise.all([
+    loadPlayers(force),
+    force || !cache.properties ? rows('properties', (q) => q.order('name')) : cache.properties,
+    force || !cache.nominals ? rows('nominals', (q) => q.order('rank', { ascending: false })) : cache.nominals,
+  ]).then(([, properties, nominals]) => {
+    Object.assign(cache, {
+      properties, nominals,
       propByName: Object.fromEntries(properties.map((p) => [p.name, p])),
     });
-  }
-  return cache;
+    return cache;
+  });
+  refsRequest = request;
+  request.then(
+    () => { if (refsRequest === request) refsRequest = null; },
+    () => { if (refsRequest === request) refsRequest = null; },
+  );
+  return request;
 }

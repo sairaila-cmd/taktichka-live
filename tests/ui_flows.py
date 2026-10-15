@@ -6,12 +6,12 @@
 
   python tests/ui_flows.py [папка_для_снимков]
 """
-import pathlib, sys
+import csv, io, pathlib, sys
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mock_backend as m
-from mock_backend import T, calls, FAIL, RESULT
+from mock_backend import T, calls, FAIL, FAIL_STATUS, RESULT
 
 sys.stdout.reconfigure(encoding="utf-8")
 SHOTS = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else None
@@ -111,6 +111,49 @@ with sync_playwright() as p:
     page.wait_for_selector("#who input", timeout=10000)
     check("И-01 «Выйти»: поле кода снова на месте, код забыт",
           page.evaluate("localStorage.getItem('taktichka.code')") is None)
+    page.evaluate("localStorage.setItem('taktichka.code', 'bad-code')")
+    page.reload()
+    page.wait_for_function("() => !document.querySelector('#view .loading')", timeout=20000)
+    check("И-02 при восстановлении с подтверждённо неверным кодом код забывается",
+          page.locator("#who .me").count() == 0 and page.evaluate("localStorage.getItem('taktichka.code')") is None)
+    page.evaluate("localStorage.setItem('taktichka.code', 'zoi-test')")
+    FAIL_STATUS["api_whoami"] = {"status": 503, "code": "PGRST000", "message": "Сервис временно недоступен"}
+    page.reload()
+    page.wait_for_selector(".toast.error:has-text('Не удалось восстановить вход')", timeout=10000)
+    check("И-01 временная ошибка восстановления показывает уведомление и сохраняет код",
+          page.locator("#who .me").count() == 0 and
+          page.evaluate("localStorage.getItem('taktichka.code')") == "zoi-test")
+    FAIL_STATUS.clear()
+    page.reload()
+    page.wait_for_selector("#who .me", timeout=10000)
+    check("И-01 после временного сбоя сохранённый код успешно восстанавливает вход",
+          page.locator("#who .me").inner_text() == "Зои" and
+          page.evaluate("localStorage.getItem('taktichka.code')") == "zoi-test")
+    page.click("#who button:has-text('Выйти')")
+
+    print("\nПагинация данных Supabase")
+    m.T["figures"].extend(m.fig(1000 + i, f"Overflow figure {i:04d}", "пешка", 1, 1, "Мобильность")
+                          for i in range(1000))
+    m.T["figures"].append(m.fig(500000, "Pagination sentinel", "пешка", 1, 1, "Мобильность"))
+    m.T["figure_owners"].extend({"figure_id": 10000 + i, "player_id": 2} for i in range(1000))
+    m.T["figure_owners"].append({"figure_id": 500000, "player_id": 5})
+    paged = page.evaluate("""async () => {
+      const { rowsAll } = await import('./js/api.js?v=202610151204');
+      const [figures, owners] = await Promise.all([
+        rowsAll('figures', q => q.order('id')),
+        rowsAll('figure_owners', q => q.order('figure_id').order('player_id')),
+      ]);
+      return {
+        figureCount: figures.length,
+        finalFigure: figures.find(f => f.id === 500000)?.name,
+        ownerCount: owners.length,
+        finalOwner: owners.find(o => o.figure_id === 500000)?.player_id,
+      };
+    }""")
+    check("страницы таблиц собираются полностью, включая строки после лимита 1000",
+          paged == {"figureCount": 1013, "finalFigure": "Pagination sentinel",
+                    "ownerCount": 1013, "finalOwner": 5}, paged)
+    setup()
 
     print("\nФигуры: поиск, фильтры, сортировка")
     go(page, None, "#/", "Все фигуры")
@@ -337,6 +380,30 @@ with sync_playwright() as p:
     go(page, "samum-test", "#/game/2", "Моё участие")
     check("И-37 после начала игры игрок трофей из запаса не берёт", page.locator("button:has-text('→ в отряд')").count() == 0)
     shot(page, "flows-draft")
+
+    print("\nКэш справочников и обновление игроков")
+    setup()
+    m.read_calls.clear()
+    go(page, "zoi-test", "#/game/1", "Ресурсы: 3")
+    refs = {table: m.read_calls.count(table) for table in ("players", "properties", "nominals")}
+    check("И-40 справочники при входе в игру загружены не более одного раза",
+          refs["properties"] == 1 and refs["nominals"] == 1, refs)
+    m.T["players"][1]["resources"] = 12
+    reads_at = len(m.read_calls)
+    page.evaluate("window.dispatchEvent(new Event('taktichka:refresh'))")
+    page.wait_for_function("() => document.querySelector('#view')?.innerText.includes('Ресурсы: 12')", timeout=15000)
+    refreshed = m.read_calls[reads_at:]
+    check("И-40 обновление страницы игры повторно читает игроков, но не справочники",
+          refreshed.count("players") == 1 and "properties" not in refreshed and "nominals" not in refreshed,
+          refreshed)
+    reads_at = len(m.read_calls)
+    page.evaluate("location.hash = '#/people'")
+    page.wait_for_selector("#view h1:text-is('Персонажи')", timeout=15000)
+    page.wait_for_function("() => document.querySelector('#view')?.innerText.includes('12')")
+    refreshed = m.read_calls[reads_at:]
+    check("И-40 раздел персонажей показывает свежие данные игроков без повторной загрузки справочников",
+          refreshed.count("players") == 1 and "properties" not in refreshed and "nominals" not in refreshed,
+          refreshed)
 
     print("\nХод игры")
     setup()
@@ -813,7 +880,10 @@ with sync_playwright() as p:
           and page.locator("ul.log li", has_text="Передача").locator("a.log-game").count() == 0)
     T["events"][:] = [{"id": 1000 - i, "at": "2026-10-20T%02d:%02d:00Z" % (23 - i // 60, 59 - i % 60), "actor": 2,
                        "kind": "roll", "game_id": 1 if i % 2 else None, "figure_id": None, "squad_id": None, "player_id": None,
-                       "amount": i % 10 + 1, "data": {}, "comment": "№%d" % i, "reverted": False} for i in range(650)]
+                       "amount": i % 10 + 1, "data": {},
+                       "comment": {0: "=1+1", 1: " \t+SUM(1;1)", 2: "-2+3", 3: "@SUM(1;1)",
+                                   4: "обычный; \"текст\"\nсо второй строки"}.get(i, "№%d" % i),
+                       "reverted": False} for i in range(650)]
     go(page, None, "#/log", "Журнал")
     li = lambda: page.locator("ul.log li").count()
     more = page.locator("button:has-text('Показать ещё')")
@@ -826,11 +896,14 @@ with sync_playwright() as p:
     with page.expect_download(timeout=15000) as dl:
         page.click("button:has-text('Скачать весь журнал')")
     text = pathlib.Path(dl.value.path()).read_text(encoding="utf-8")
-    lines = text.lstrip("﻿").splitlines()
+    rows = list(csv.reader(io.StringIO(text.lstrip("﻿"), newline=""), delimiter=";"))
     check("И-72 «Скачать весь журнал (CSV)» → все 650 записей с заголовком и игрой",
-          text.startswith("﻿") and lines[0] == "№;Время;Игра;Кто;Событие;Комментарий;Отменено" and len(lines) == 651
-          and lines[1].startswith("1000;") and ";;Зои;Бросок d10: 1;№0;" in lines[1] and ";Пять ликов одной Луны;Зои;" in lines[2]
-          and dl.value.suggested_filename.endswith(".csv"), (len(lines), lines[:3]))
+          text.startswith("﻿") and rows[0] == ["№", "Время", "Игра", "Кто", "Событие", "Комментарий", "Отменено"] and len(rows) == 651
+          and rows[1][0] == "1000" and rows[1][5] == "'=1+1" and rows[2][5] == "' \t+SUM(1;1)"
+          and rows[3][5] == "'-2+3" and rows[4][5] == "'@SUM(1;1)"
+          and rows[5][5] == "обычный; \"текст\"\nсо второй строки" and rows[6][5] == "№5"
+          and rows[2][2:4] == ["Пять ликов одной Луны", "Зои"] and dl.value.suggested_filename.endswith(".csv"),
+          (len(rows), rows[:7]))
     b.close()
 
 srv.shutdown()

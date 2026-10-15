@@ -1,8 +1,8 @@
 // Фигуры: таблица как в дашборде + карточка фигуры, история и правки по коду.
 // Сверху — фигуры в отрядах выбранной игры (как в «Персонажах»), ниже, свёрнуто, — остальные.
-import { rows, cache, session } from '../api.js?v=202610151204';
-import { h, clear, btn, NOM_GLYPH, plural, STATUS_RU } from '../ui.js?v=202610151204';
-import { openFigure, addFigure } from './figure-card.js?v=202610151204';
+import { rows, rowsAll, cache, session } from '../api.js?v=202610151325';
+import { h, clear, btn, NOM_GLYPH, plural, STATUS_RU } from '../ui.js?v=202610151325';
+import { openFigure, addFigure } from './figure-card.js?v=202610151325';
 
 const COLS = [
   ['name', 'Фигура'], ['nominal', 'Номинал'], ['s', 'С', 'num'], ['l', 'Л', 'num'], ['v', 'В', 'num'],
@@ -10,11 +10,14 @@ const COLS = [
 ];
 
 export default async function figuresView(root, openId, gameParam) {
-  const [figures, owners, games] = await Promise.all([rows('figures', (q) => q.order('name')), rows('figure_owners'),
-    rows('games', (q) => q.neq('status', 'closed').order('id', { ascending: false }))]);
+  const [figures, owners, games] = await Promise.all([
+    rowsAll('figures', (q) => q.order('name')),
+    rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
+    rowsAll('games', (q) => q.neq('status', 'closed').order('id', { ascending: false })),
+  ]);
   // По умолчанию — последняя идущая игра, если её нет — последняя в сборе отрядов.
   const game = games.find((g) => g.id === Number(gameParam)) || games.find((g) => g.status === 'running') || games[0] || null;
-  const inGame = new Set(game ? (await rows('squad_figures', (q) => q.eq('game_id', game.id), 'figure_id')).map((x) => x.figure_id) : []);
+  const inGame = new Set(game ? (await rowsAll('squad_figures', (q) => q.eq('game_id', game.id).order('squad_id').order('figure_id'), 'figure_id')).map((x) => x.figure_id) : []);
   const ownersOf = {};
   owners.forEach((o) => { (ownersOf[o.figure_id] = ownersOf[o.figure_id] || []).push(o.player_id); });
   figures.forEach((f) => {

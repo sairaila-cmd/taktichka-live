@@ -1,23 +1,24 @@
 // Персонажи: стратеги выбранной игры (напарники — одной строкой) с Ресурсами, отрядами и фигурами;
 // ниже, свёрнуто, — персонажи, не участвующие в этой игре. Передача Ресурсов, кнопки ведущего.
-import { rows, call, cache, session, isAdmin, loadRefs } from '../api.js?v=202610151204';
-import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610151204';
-import { res, pname } from './common.js?v=202610151204';
+import { rowsAll, call, cache, session, isAdmin, loadPlayers } from '../api.js?v=202610151325';
+import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610151325';
+import { res, pname } from './common.js?v=202610151325';
 
 export default async function peopleView(root, gameParam) {
-  await loadRefs(true);
-  const games = await rows('games', (q) => q.neq('status', 'closed').order('id', { ascending: false }));
+  await loadPlayers(true);
+  const games = await rowsAll('games', (q) => q.neq('status', 'closed').order('id', { ascending: false }));
   // По умолчанию — последняя идущая игра, если её нет — последняя в сборе отрядов.
   const game = games.find((g) => g.id === Number(gameParam)) || games.find((g) => g.status === 'running') || games[0] || null;
   const people = cache.players.filter((p) => !p.is_admin);
 
   const [owners, activeFigs, strategists, members, squads, sfs, gifts] = await Promise.all([
-    rows('figure_owners'), rows('figures', (q) => q.eq('status', 'active'), 'id'),
-    game ? rows('strategists', (q) => q.eq('game_id', game.id)) : [],
-    game ? rows('strategist_members', (q) => q.eq('game_id', game.id)) : [],
-    game ? rows('squads', (q) => q.eq('game_id', game.id), 'id, strategist_id') : [],
-    game ? rows('squad_figures', (q) => q.eq('game_id', game.id), 'squad_id, strategist_id') : [],
-    game ? rows('game_gifts', (q) => q.eq('game_id', game.id)) : [],
+    rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
+    rowsAll('figures', (q) => q.eq('status', 'active').order('id'), 'id'),
+    game ? rowsAll('strategists', (q) => q.eq('game_id', game.id).order('id')) : [],
+    game ? rowsAll('strategist_members', (q) => q.eq('game_id', game.id).order('strategist_id').order('player_id')) : [],
+    game ? rowsAll('squads', (q) => q.eq('game_id', game.id).order('id'), 'id, strategist_id') : [],
+    game ? rowsAll('squad_figures', (q) => q.eq('game_id', game.id).order('squad_id').order('figure_id'), 'squad_id, strategist_id') : [],
+    game ? rowsAll('game_gifts', (q) => q.eq('game_id', game.id).order('game_id').order('gift')) : [],
   ]);
   const membersOf = (sid) => members.filter((m) => m.strategist_id === sid).map((m) => m.player_id);
   const label = (sid) => membersOf(sid).map(pname).join(' и ');

@@ -1,7 +1,7 @@
 // Раздел ведущего: игры, конфликты совладения, отмена записей журнала, памятка.
-import { rows, call, isAdmin } from '../api.js?v=202610151204';
-import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610151204';
-import { describe, gameBadge } from './common.js?v=202610151204';
+import { rows, rowsAll, call, isAdmin } from '../api.js?v=202610151325';
+import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610151325';
+import { describe, gameBadge } from './common.js?v=202610151325';
 
 export default async function adminView(root) {
   if (!isAdmin()) {
@@ -9,9 +9,11 @@ export default async function adminView(root) {
     return;
   }
   const [games, conflicts, events, figures, squads] = await Promise.all([
-    rows('games', (q) => q.order('id', { ascending: false })), rows('figure_conflicts'),
+    rowsAll('games', (q) => q.order('id', { ascending: false })),
+    rowsAll('figure_conflicts', (q) => q.order('game_id').order('figure_id')),
     rows('events', (q) => q.order('at', { ascending: false }).limit(60)),
-    rows('figures', (q) => q, 'id, name'), rows('squads', (q) => q, 'id, name'),
+    rowsAll('figures', (q) => q.order('id'), 'id, name'),
+    rowsAll('squads', (q) => q.order('id'), 'id, name'),
   ]);
   const maps = { figures: Object.fromEntries(figures.map((f) => [f.id, f])), squads: Object.fromEntries(squads.map((s) => [s.id, s])),
     games: Object.fromEntries(games.map((g) => [g.id, g])) };

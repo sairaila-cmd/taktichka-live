@@ -1,7 +1,7 @@
 // Общий журнал: кто, когда и что менял. Порциями по 300, «Показать ещё» и выгрузка всего журнала в CSV.
-import { rows } from '../api.js?v=202610151204';
-import { h, btn, toast, plural } from '../ui.js?v=202610151204';
-import { logItem, describe, gameTitle, pname } from './common.js?v=202610151204';
+import { rows, rowsAll } from '../api.js?v=202610151325';
+import { h, btn, toast, plural } from '../ui.js?v=202610151325';
+import { logItem, describe, gameTitle, pname } from './common.js?v=202610151325';
 
 const PAGE = 300;
 const CHUNK = 1000; // Supabase отдаёт не больше 1000 строк за запрос
@@ -10,7 +10,9 @@ const newest = (q) => q.order('at', { ascending: false }).order('id', { ascendin
 export default async function logView(root) {
   const [events, figures, squads, games] = await Promise.all([
     rows('events', (q) => newest(q).range(0, PAGE - 1)),
-    rows('figures', (q) => q, 'id, name'), rows('squads', (q) => q, 'id, name'), rows('games', (q) => q, 'id, title'),
+    rowsAll('figures', (q) => q.order('id'), 'id, name'),
+    rowsAll('squads', (q) => q.order('id'), 'id, name'),
+    rowsAll('games', (q) => q.order('id'), 'id, title'),
   ]);
   const maps = { figures: Object.fromEntries(figures.map((f) => [f.id, f])), squads: Object.fromEntries(squads.map((s) => [s.id, s])),
     games: Object.fromEntries(games.map((g) => [g.id, g])) };
@@ -55,7 +57,11 @@ export default async function logView(root) {
         all.push(...batch);
         if (batch.length < CHUNK) break;
       }
-      const cell = (v) => { const s = v == null ? '' : String(v); return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      const cell = (v) => {
+        let s = v == null ? '' : String(v);
+        if (typeof v === 'string' && /^[\s\u0000-\u001f]*[=+\-@]/.test(s)) s = "'" + s;
+        return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
       const time = (ts) => { const d = new Date(ts); const p = (n) => String(n).padStart(2, '0');
         return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
       const lines = [['№', 'Время', 'Игра', 'Кто', 'Событие', 'Комментарий', 'Отменено']].concat(all.map((ev) => [
