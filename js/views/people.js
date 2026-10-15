@@ -1,8 +1,8 @@
 // Персонажи: стратеги выбранной игры (напарники — одной строкой) с Ресурсами, отрядами и фигурами;
 // ниже, свёрнуто, — персонажи, не участвующие в этой игре. Передача Ресурсов, кнопки ведущего.
-import { rowsAll, call, cache, session, isAdmin, loadPlayers } from '../api.js?v=202610152353';
-import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610152353';
-import { res, pname } from './common.js?v=202610152353';
+import { rowsAll, call, cache, session, isAdmin, loadPlayers } from '../api.js?v=202610160022';
+import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610160022';
+import { res, pname } from './common.js?v=202610160022';
 
 export default async function peopleView(root, gameParam) {
   await loadPlayers(true);

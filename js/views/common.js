@@ -1,6 +1,6 @@
 // Общее для разделов: подписи событий журнала, карточка отряда, имена.
-import { cache, session } from '../api.js?v=202610152353';
-import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610152353';
+import { cache, session } from '../api.js?v=202610160022';
+import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610160022';
 
 export const pname = (id) => (cache.playerById && cache.playerById[id] ? cache.playerById[id].name : (id == null ? '—' : '#' + id));
 export const res = (n) => plural(Math.abs(n), 'Ресурс', 'Ресурса', 'Ресурсов');
@@ -18,6 +18,7 @@ export function describe(ev, maps = {}) {
     case 'figure_add': return 'Новая фигура ' + F + (d.source ? ' (' + d.source + ')' : '');
     case 'figure_edit': return 'Правка фигуры ' + F;
     case 'figure_transfer': return 'Передача фигуры ' + F + ': ' + pname(d.from) + ' → ' + pname(d.to);
+    case 'owner_add': return 'Совладелец фигуры ' + F + ': ' + pname(ev.player_id);
     case 'figure_use': return 'Применение фигуры ' + F + (d.where ? ' — ' + d.where : '');
     case 'figure_state': return 'Фигура ' + F + ' в отряде ' + sq(ev.squad_id) + ': ' + (STATE_RU[d.from] || d.from) + ' → ' + (STATE_RU[d.to] || d.to);
     case 'figure_move': return 'Фигура ' + F + ' перешла в отряд ' + sq(d.to);
@@ -99,7 +100,7 @@ export function figLink(f, text) {
   return h('a', { href: '#/figure/' + f.id, onclick: (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    import('./figure-card.js?v=202610152353').then((m) => m.openFigure(f.id));
+    import('./figure-card.js?v=202610160022').then((m) => m.openFigure(f.id));
   } }, text || f.name);
 }
 
