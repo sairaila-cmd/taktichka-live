@@ -425,5 +425,17 @@ insert into figure_owners select currval('figures_id_seq'), id from players wher
 insert into figures (name, nominal, s, l, v, properties, owner_label, sources) values ('Чучело Твари', 'ферзь', 6, 6, 8, array['Перспективы']::text[], 'Смысловский; Зои; Ратбургер', 'Монстры; Storm Heist; До тла');
 insert into figure_owners select currval('figures_id_seq'), id from players where name in ('Зои', 'Ратбургер', 'Смысловский');
 
+insert into figures (name, nominal, s, l, v, properties, owner_label, sources) values ('KIROV', 'ладья', 6, 4, 4, array['Только ты и я']::text[], 'Винсент Фламбо', 'Пять цветов одной Луны');
+insert into figure_owners select currval('figures_id_seq'), id from players where name in ('Винсент Фламбо');
+insert into figures (name, nominal, s, l, v, properties, owner_label, sources) values ('Гончая-автоматон из кафедры да Винчи одиличесской анимации «bar-BOSS»', 'ладья', 7, 5, 1, array['Провокация']::text[], 'Винсент Фламбо', 'Пять цветов одной Луны');
+insert into figure_owners select currval('figures_id_seq'), id from players where name in ('Винсент Фламбо');
+insert into figures (name, nominal, s, l, v, properties, owner_label, sources) values ('Немертвый-оккультист', 'конь', 2, 3, 5, array['Шпионаж']::text[], 'Винсент Фламбо', 'Пять цветов одной Луны');
+insert into figure_owners select currval('figures_id_seq'), id from players where name in ('Винсент Фламбо');
+insert into figures (name, nominal, s, l, v, properties, owner_label, sources) values ('Группа восторженных студентов с Виктории', 'пешка', 3, 3, 3, array['Разведка']::text[], 'Винсент Фламбо', 'Пять цветов одной Луны');
+insert into figure_owners select currval('figures_id_seq'), id from players where name in ('Винсент Фламбо');
+insert into figures (name, nominal, s, l, v, properties, owner_label, sources) values ('Бродяги с Пятницкого Шоссе', 'пешка', 3, 3, 3, array['Плен']::text[], 'Винсент Фламбо', 'Пять цветов одной Луны');
+insert into figure_owners select currval('figures_id_seq'), id from players where name in ('Винсент Фламбо');
+insert into figures (name, nominal, s, l, v, properties, owner_label, sources) values ('Полиночка', 'пешка', 3, 3, 1, array['Добивание']::text[], 'Винсент Фламбо', 'Пять цветов одной Луны');
+insert into figure_owners select currval('figures_id_seq'), id from players where name in ('Винсент Фламбо');
 insert into events (kind, data, comment) values ('import', jsonb_build_object('figures', 175, 'players', 25), 'Перенос из дашборда «Фигуры тактички»');
 commit;

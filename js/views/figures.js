@@ -1,8 +1,8 @@
 // Фигуры: таблица как в дашборде + карточка фигуры, история и правки по коду.
 // Сверху — фигуры в отрядах выбранной игры (как в «Персонажах»), ниже, свёрнуто, — остальные.
-import { rows, rowsAll, cache, session } from '../api.js?v=202610152342';
-import { h, clear, btn, NOM_GLYPH, plural, STATUS_RU } from '../ui.js?v=202610152342';
-import { openFigure, addFigure } from './figure-card.js?v=202610152342';
+import { rows, rowsAll, cache, session } from '../api.js?v=202610152353';
+import { h, clear, btn, NOM_GLYPH, plural, STATUS_RU } from '../ui.js?v=202610152353';
+import { openFigure, addFigure } from './figure-card.js?v=202610152353';
 
 const COLS = [
   ['name', 'Фигура'], ['nominal', 'Номинал'], ['s', 'С', 'num'], ['l', 'Л', 'num'], ['v', 'В', 'num'],
