@@ -1,8 +1,8 @@
 // Окно фигуры: свойства, владельцы, история и правки по коду. Открывается поверх любой
 // страницы (раздел «Фигуры», страница игры, бой) — без перехода.
-import { rows, call, cache, session, isAdmin } from '../api.js?v=202610150237';
-import { h, btn, modal, form, act, refresh, NOM_GLYPH } from '../ui.js?v=202610150237';
-import { logList, pname } from './common.js?v=202610150237';
+import { rows, call, cache, session, isAdmin } from '../api.js?v=202610151204';
+import { h, btn, modal, form, act, refresh, NOM_GLYPH } from '../ui.js?v=202610151204';
+import { logList, pname } from './common.js?v=202610151204';
 
 export async function openFigure(id) {
   const [figs, owners, events] = await Promise.all([
@@ -19,6 +19,9 @@ export async function openFigure(id) {
     .filter((x) => Number.isInteger(x)))];
   const squads = squadIds.length ? await rows('squads', (q) => q.in('id', squadIds), 'id, name') : [];
   const games = session.me ? await rows('games', (q) => q.order('id', { ascending: false }).limit(30)) : [];
+  // названия игр для меток в истории
+  const gameIds = [...new Set(events.map((e) => e.game_id).filter((x) => x != null))];
+  const evGames = gameIds.length ? await rows('games', (q) => q.in('id', gameIds), 'id, title') : [];
   const mine = session.me && (f.owners.includes(session.me.id) || isAdmin());
   const p = (name) => cache.propByName[name];
   modal(NOM_GLYPH[f.nominal] + ' ' + f.name, (closeFn) => h('div', { class: 'stack' },
@@ -40,7 +43,8 @@ export async function openFigure(id) {
       btn('Передать', () => { closeFn(); transferFigure(f); }),
       btn('Отметить применение', () => { closeFn(); useFigure(f, games); })) : null,
     h('h3', {}, 'История'),
-    logList(events, { figures: { [f.id]: f }, squads: Object.fromEntries(squads.map((s) => [s.id, s])) })));
+    logList(events, { figures: { [f.id]: f }, squads: Object.fromEntries(squads.map((s) => [s.id, s])),
+      games: Object.fromEntries(evGames.map((g) => [g.id, g])) })));
 }
 
 const propOptions = () => cache.properties.map((p) => [p.name, p.name + ' (' + p.phase + ')']);

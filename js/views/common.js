@@ -1,11 +1,12 @@
 // Общее для разделов: подписи событий журнала, карточка отряда, имена.
-import { cache, session } from '../api.js?v=202610150237';
-import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610150237';
+import { cache, session } from '../api.js?v=202610151204';
+import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610151204';
 
 export const pname = (id) => (cache.playerById && cache.playerById[id] ? cache.playerById[id].name : (id == null ? '—' : '#' + id));
 export const res = (n) => plural(Math.abs(n), 'Ресурс', 'Ресурса', 'Ресурсов');
 
 // maps: { figures: {id: fig}, squads: {id: squad}, strategists: {id: label}, games: {id: game} }
+// (games — для метки игры у записей журнала; на странице игры не передаётся)
 export function describe(ev, maps = {}) {
   const d = ev.data || {};
   const fig = (id) => '«' + ((maps.figures && maps.figures[id] && maps.figures[id].name) || ('фигура #' + id)) + '»';
@@ -66,14 +67,28 @@ export function describe(ev, maps = {}) {
   }
 }
 
-export function logList(events, maps) {
-  if (!events.length) return h('p', { class: 'empty' }, 'Записей пока нет.');
-  return h('ul', { class: 'log' }, events.map((ev) => h('li', { class: ev.reverted ? 'reverted' : '' },
+// Название игры записи журнала (maps.games передают там, где идут записи разных игр).
+export const gameTitle = (ev, maps = {}) => (ev.game_id == null || !maps.games ? ''
+  : (maps.games[ev.game_id] ? maps.games[ev.game_id].title : 'игра #' + ev.game_id));
+
+export function gameBadge(ev, maps) {
+  const g = gameTitle(ev, maps);
+  return g ? h('a', { class: 'badge info log-game', href: '#/game/' + ev.game_id, style: 'margin-right:6px' }, g) : null;
+}
+
+export function logItem(ev, maps) {
+  return h('li', { class: ev.reverted ? 'reverted' : '' },
     h('time', { datetime: ev.at }, fmtTime(ev.at)),
     h('div', {},
+      gameBadge(ev, maps),
       describe(ev, maps),
       ev.comment ? h('span', { class: 'muted' }, ' — ' + ev.comment) : null,
-      ev.actor ? h('span', { class: 'muted small' }, ' · ' + pname(ev.actor)) : null))));
+      ev.actor ? h('span', { class: 'muted small' }, ' · ' + pname(ev.actor)) : null));
+}
+
+export function logList(events, maps) {
+  if (!events.length) return h('p', { class: 'empty' }, 'Записей пока нет.');
+  return h('ul', { class: 'log' }, events.map((ev) => logItem(ev, maps)));
 }
 
 export const glyph = (nom) => NOM_GLYPH[nom] || '';
@@ -84,7 +99,7 @@ export function figLink(f, text) {
   return h('a', { href: '#/figure/' + f.id, onclick: (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    import('./figure-card.js?v=202610150237').then((m) => m.openFigure(f.id));
+    import('./figure-card.js?v=202610151204').then((m) => m.openFigure(f.id));
   } }, text || f.name);
 }
 

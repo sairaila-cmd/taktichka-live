@@ -22,8 +22,10 @@ players = [{"id": 1, "name": "Ведущий", "characters": [], "is_admin": Tru
            {"id": 5, "name": "Самум", "characters": ["Самум"], "is_admin": False, "resources": 7, "bonus_squads": 0}]
 def fig(i, name, nom, s, l, prop): return {"id": i, "name": name, "nominal": nom, "s": s, "l": l, "v": 1, "properties": [prop],
     "owner_label": "", "sources": "", "status": "active"}
-figures = [fig(11, "Ладья-натиск", "ладья", 5, 3, "Натиск"), fig(12, "Пешка-добивание", "пешка", 1, 2, "Добивание"),
-           fig(13, "Конь-осведомлённый", "конь", 2, 2, "Осведомленность"), fig(21, "Пешка-шпион", "пешка", 3, 1, "Шпионаж"),
+figures = [dict(fig(11, "Ладья-натиск", "ладья", 5, 3, "Натиск"), sources="Фури"),
+           dict(fig(12, "Пешка-добивание", "пешка", 1, 2, "Добивание"), sources="Фури; Storm Heist"),
+           fig(13, "Конь-осведомлённый", "конь", 2, 2, "Осведомленность"),
+           dict(fig(21, "Пешка-шпион", "пешка", 3, 1, "Шпионаж"), sources="Storm Heist; 182/8"),
            fig(22, "Ладья-лекарь", "ладья", 7, 2, "Лечение"), fig(23, "Офицер «Всем друг»", "офицер", 5, 3, "Всем друг"),
            fig(24, "Резервный конь", "конь", 2, 2, "Мобильность"), fig(25, "Выбывший пёс", "пешка", 4, 4, "Мобильность")]
 BASE = {
@@ -133,7 +135,11 @@ def handle(route):
         elif fn == "api_roll": result = 7
         else: result = None
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(result, ensure_ascii=False))
-    rows = filt(T.get(path, []), urllib.parse.parse_qs(u.query))
+    qs = urllib.parse.parse_qs(u.query)
+    rows = filt(T.get(path, []), qs)
+    # .range()/.limit(): порядок строк — как в фикстуре (сортировку мок не делает)
+    start = int(qs.get("offset", ["0"])[0])
+    rows = rows[start:start + int(qs["limit"][0])] if "limit" in qs else rows[start:]
     route.fulfill(status=200, content_type="application/json", body=json.dumps(rows, ensure_ascii=False))
 
 

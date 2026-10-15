@@ -120,7 +120,7 @@ with sync_playwright() as p:
     check("И-10 «погибшие» добавляет погибших (12)", rows() == 12, rows())
     page.uncheck("label:has-text('погибшие') input")
     page.fill("input[type=search]", "шпион")
-    check("И-10 поиск «шпион» → 1 фигура", rows() == 1 and "Пешка-шпион" in page.locator("tbody").inner_text())
+    check("И-10 поиск «шпион» → 1 фигура", rows() == 1 and "Пешка-шпион" in " ".join(page.locator("tbody").all_inner_texts()))
     page.fill("input[type=search]", "Мобильность")
     check("И-10 поиск по свойству «Мобильность» → 5 фигур", rows() == 5, rows())
     page.fill("input[type=search]", "")
@@ -130,12 +130,35 @@ with sync_playwright() as p:
     page.select_option("select[aria-label='Владелец']", label="Зои")
     check("И-10 фильтр по владельцу «Зои» → 3 фигуры", rows() == 3, rows())
     page.select_option("select[aria-label='Владелец']", value="")
-    page.click("thead button:text-is('С')")
+    page.click("thead button:text-is('С') >> nth=0")
     first = page.locator("tbody tr").first.inner_text()
     check("И-10 сортировка по Силе: сначала самая сильная (Ладья-лекарь, 7)", first.startswith("Ладья-лекарь"), first[:40])
-    page.click("thead button:text-is('С')")
+    page.click("thead button:text-is('С') >> nth=0")
     check("И-10 повторный щелчок — обратный порядок", page.locator("tbody tr").first.inner_text().startswith("Пешка"),
           page.locator("tbody tr").first.inner_text()[:40])
+    opts = page.locator("select[aria-label='Источник'] option").all_inner_texts()
+    check("И-16 список источников: каждый источник один раз, из «;»-списков", opts == ["Все источники", "182/8", "Фури", "Storm Heist"], opts)
+    page.select_option("select[aria-label='Источник']", label="Storm Heist")
+    check("И-16 фильтр по источнику «Storm Heist» → 2 фигуры", rows() == 2, rows())
+    page.select_option("select[aria-label='Владелец']", label="Зои")
+    check("И-16 источник + владелец «Зои» вместе → 1 фигура (Пешка-добивание)",
+          rows() == 1 and "Пешка-добивание" in " ".join(page.locator("tbody").all_inner_texts()), rows())
+    page.select_option("select[aria-label='Источник']", value="")
+    page.select_option("select[aria-label='Владелец']", value="")
+    game_rows = lambda: page.locator("#figs-game tbody tr").all_inner_texts()
+    rest_rows = lambda: page.locator("#figs-rest tbody tr").all_inner_texts()
+    g = game_rows()
+    check("И-17 сверху — фигуры в отрядах идущей игры (8)", len(g) == 8 and not any("Ферзь" in x for x in g), len(g))
+    check("И-17 остальные — в свёрнутом блоке «Остальные фигуры (3)»",
+          len(rest_rows()) == 3 and page.locator("details summary").inner_text() == "Остальные фигуры (3)"
+          and page.locator("details").get_attribute("open") is None, page.locator("details summary").inner_text())
+    page.select_option("select[aria-label='Игра']", value="2")
+    page.wait_for_function("() => location.hash === '#/figures/2' && document.querySelectorAll('#figs-game tbody tr').length === 1", timeout=10000)
+    check("И-17 выбор другой игры: сверху её фигуры (Ферзь бури), остальные 10 ниже",
+          game_rows()[0].startswith("Ферзь бури") and len(rest_rows()) == 10, (game_rows(), len(rest_rows())))
+    page.fill("input[type=search]", "Ладья")
+    check("И-17 поиск действует на оба списка", len(game_rows()) == 0 and len(rest_rows()) == 2
+          and page.locator("p.empty:has-text('Под фильтр не попала')").is_visible(), (len(game_rows()), len(rest_rows())))
 
     print("\nФигуры: правки по коду")
     go(page, "zoi-test", "#/", "+ Добавить фигуру")
@@ -772,6 +795,42 @@ with sync_playwright() as p:
     go(page, "zoi-test", "#/log", "Журнал")
     check("В-71 общий журнал виден игроку; отменённые зачёркнуты",
           page.locator("ul.log li").count() == 4 and page.locator("ul.log li.reverted").count() == 1)
+
+    print("\nЖурнал: метки игр, «Показать ещё», выгрузка")
+    setup()
+    T["events"].append({"id": 5, "at": "2026-10-19T10:00:00Z", "actor": 2, "kind": "resources_transfer", "game_id": None, "figure_id": None,
+                        "squad_id": None, "player_id": 3, "amount": 1, "data": {"from": 2, "to": 3}, "comment": None, "reverted": False})
+    go(page, "admin-test", "#/admin", "Последние записи журнала")
+    log = page.locator("section.card:has(h2:has-text('Последние записи журнала')) li")
+    check("В-72 журнал ведущего: у записей игры метка «Пять ликов одной Луны», у передачи Ресурсов — нет",
+          log.locator("a.log-game").count() == 4 and log.filter(has_text="Передача").locator("a.log-game").count() == 0,
+          log.locator("a.log-game").count())
+    go(page, None, "#/log", "Журнал")
+    badge = page.locator("ul.log li a.log-game").first
+    check("И-70 у записи игры — метка-ссылка на игру; у записи без игры метки нет",
+          page.locator("ul.log li a.log-game").count() == 4 and badge.inner_text() == "Пять ликов одной Луны"
+          and badge.get_attribute("href") == "#/game/1"
+          and page.locator("ul.log li", has_text="Передача").locator("a.log-game").count() == 0)
+    T["events"][:] = [{"id": 1000 - i, "at": "2026-10-20T%02d:%02d:00Z" % (23 - i // 60, 59 - i % 60), "actor": 2,
+                       "kind": "roll", "game_id": 1 if i % 2 else None, "figure_id": None, "squad_id": None, "player_id": None,
+                       "amount": i % 10 + 1, "data": {}, "comment": "№%d" % i, "reverted": False} for i in range(650)]
+    go(page, None, "#/log", "Журнал")
+    li = lambda: page.locator("ul.log li").count()
+    more = page.locator("button:has-text('Показать ещё')")
+    check("И-71 сначала 300 записей и кнопка «Показать ещё 300»", li() == 300 and more.is_visible(), li())
+    more.click(); page.wait_for_function("() => document.querySelectorAll('ul.log li').length === 600", timeout=10000)
+    check("И-71 «Показать ещё» → 600, порядок сохранён", li() == 600 and "№599" in page.locator("ul.log li").nth(599).inner_text())
+    more.click(); page.wait_for_function("() => document.querySelectorAll('ul.log li').length === 650", timeout=10000)
+    check("И-71 последняя порция → 650, кнопки нет, «Это все записи»",
+          li() == 650 and more.is_hidden() and page.locator("text=Это все записи.").is_visible(), li())
+    with page.expect_download(timeout=15000) as dl:
+        page.click("button:has-text('Скачать весь журнал')")
+    text = pathlib.Path(dl.value.path()).read_text(encoding="utf-8")
+    lines = text.lstrip("﻿").splitlines()
+    check("И-72 «Скачать весь журнал (CSV)» → все 650 записей с заголовком и игрой",
+          text.startswith("﻿") and lines[0] == "№;Время;Игра;Кто;Событие;Комментарий;Отменено" and len(lines) == 651
+          and lines[1].startswith("1000;") and ";;Зои;Бросок d10: 1;№0;" in lines[1] and ";Пять ликов одной Луны;Зои;" in lines[2]
+          and dl.value.suggested_filename.endswith(".csv"), (len(lines), lines[:3]))
     b.close()
 
 srv.shutdown()

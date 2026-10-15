@@ -1,7 +1,7 @@
 // Раздел ведущего: игры, конфликты совладения, отмена записей журнала, памятка.
-import { rows, call, isAdmin } from '../api.js?v=202610150237';
-import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610150237';
-import { describe } from './common.js?v=202610150237';
+import { rows, call, isAdmin } from '../api.js?v=202610151204';
+import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610151204';
+import { describe, gameBadge } from './common.js?v=202610151204';
 
 export default async function adminView(root) {
   if (!isAdmin()) {
@@ -13,7 +13,8 @@ export default async function adminView(root) {
     rows('events', (q) => q.order('at', { ascending: false }).limit(60)),
     rows('figures', (q) => q, 'id, name'), rows('squads', (q) => q, 'id, name'),
   ]);
-  const maps = { figures: Object.fromEntries(figures.map((f) => [f.id, f])), squads: Object.fromEntries(squads.map((s) => [s.id, s])) };
+  const maps = { figures: Object.fromEntries(figures.map((f) => [f.id, f])), squads: Object.fromEntries(squads.map((s) => [s.id, s])),
+    games: Object.fromEntries(games.map((g) => [g.id, g])) };
   root.append(
     h('h1', { class: 'page-title' }, 'Ведущему'),
     h('p', { class: 'lede' }, h('a', { href: '#/help/admin' }, 'Инструкция для ведущего')),
@@ -32,6 +33,6 @@ export default async function adminView(root) {
       h('p', { class: 'muted small', style: 'margin:0' }, '«Отменить» только помечает запись отменённой. Само исправление — обычным действием (передать обратно, начислить, отменить шаг боя).'),
       h('ul', { class: 'log' }, events.map((ev) => h('li', { class: ev.reverted ? 'reverted' : '' },
         h('time', {}, fmtTime(ev.at)),
-        h('div', { class: 'row' }, h('span', { style: 'flex:1' }, describe(ev, maps), ev.comment ? h('span', { class: 'muted' }, ' — ' + ev.comment) : null),
+        h('div', { class: 'row' }, h('span', { style: 'flex:1' }, gameBadge(ev, maps), describe(ev, maps), ev.comment ? h('span', { class: 'muted' }, ' — ' + ev.comment) : null),
           ev.reverted || ev.kind === 'revert' ? null : btn('Отменить', () => act(() => call('api_admin_revert', { p_event: ev.id, p_comment: null }), 'Запись помечена', refresh), 'small')))))));
 }

@@ -39,7 +39,7 @@ with sync_playwright() as p:
     print("    строк в таблице:", rows)
     page.fill("input[type=search]", "Ратбургер")
     print("    поиск «Ратбургер»:", page.locator("tbody tr").count())
-    page.click("tbody tr >> nth=0")
+    page.click("tbody tr >> visible=true >> nth=0")
     page.wait_for_selector("dialog[open]", timeout=10000)
     print("    карточка фигуры:", page.locator("dialog h2").first.inner_text())
     if SHOTS: page.screenshot(path=str(SHOTS / "figure-card.png"))
