@@ -588,5 +588,14 @@ insert into figure_owners select f.id, p.id from figures f, players p where f.na
 update figures set owner_label = 'Зои; СМС и Царевна-Лягушка' where name = 'Голем из проволоки';
 insert into figure_owners select f.id, p.id from figures f, players p where f.name = 'Голем из проволоки' and p.name in ('СМС', 'Царевна-Лягушка') on conflict do nothing;
 
+-- миграция 010: новые стратеги, Сэр Малеагант = Александр Смит
+insert into players (name, characters, is_admin) values
+  ('Стужа', array['Стужа']::text[], false),
+  ('Вилена', array['Вилена']::text[], false),
+  ('Фифи', array['Фифи']::text[], false)
+on conflict (name) do nothing;
+update players set characters = characters || array['Александр Смит']
+where name = 'Сэр Малеагант' and not ('Александр Смит' = any(characters));
+
 insert into events (kind, data, comment) values ('import', jsonb_build_object('figures', 175, 'players', 25), 'Перенос из дашборда «Фигуры тактички»');
 commit;
