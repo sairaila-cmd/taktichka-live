@@ -1,5 +1,5 @@
 // Связь с базой: чтение таблиц, вызовы api_* с личным кодом, подписки на изменения.
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610151325';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610151523';
 
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -61,6 +61,16 @@ export async function rowsAll(table, build = (q) => q, columns = '*') {
     all.push(...page);
     if (page.length < pageSize) return all;
   }
+}
+
+export async function journalPage(before, limit) {
+  const { data, error } = await sb.rpc('journal_page', {
+    p_before_at: before ? before.at : null,
+    p_before_id: before ? before.id : null,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+  return data || [];
 }
 
 // Подписка на изменения таблиц (Realtime); возвращает функцию отписки.

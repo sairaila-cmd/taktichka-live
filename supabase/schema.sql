@@ -168,8 +168,9 @@ create table events (
   reverted   boolean not null default false
 );
 create index on events (figure_id);
-create index on events (game_id);
 create index on events (player_id);
+create index events_at_id_idx on events (at desc, id desc);
+create index events_game_at_id_idx on events (game_id, at desc, id desc);
 
 -- ───────────────────────── доступ ─────────────────────────
 -- Все таблицы (кроме player_codes) читаются всеми; писать напрямую из браузера нельзя.
@@ -220,6 +221,26 @@ language sql security definer set search_path = public as $$
   insert into events (actor, kind, game_id, figure_id, squad_id, player_id, amount, data, comment)
   values (p_actor, p_kind, p_game, p_figure, p_squad, p_player, p_amount, coalesce(p_data,'{}'), p_comment)
 $$;
+
+create or replace function journal_page(p_before_at timestamptz, p_before_id bigint, p_limit int)
+returns setof events
+language plpgsql stable set search_path = public as $$
+begin
+  if (p_before_at is null) <> (p_before_id is null) then
+    raise exception 'Курсор журнала должен содержать время и номер записи';
+  end if;
+  if p_limit is null or p_limit < 1 or p_limit > 1000 then
+    raise exception 'Размер страницы журнала должен быть от 1 до 1000';
+  end if;
+  if p_before_at is null then
+    return query
+      select * from events order by at desc, id desc limit p_limit;
+  else
+    return query
+      select * from events where (at, id) < (p_before_at, p_before_id)
+      order by at desc, id desc limit p_limit;
+  end if;
+end $$;
 
 create or replace function is_owner(p_player int, p_figure int) returns boolean
 language sql stable as $$
@@ -1571,3 +1592,4 @@ begin
     execute format('grant execute on function %s to anon, authenticated', f.sig);
   end loop;
 end $$;
+grant execute on function journal_page(timestamptz, bigint, int) to anon, authenticated;

@@ -522,6 +522,35 @@ expect("починка сняла «взята» у фигуры владель�
 expect("…а у фигуры, взятой у противника, оставила",
        sql("select borrowed from squad_figures where figure_id=%s and game_id=%s", fig["Пешка-запас"], g4) == [(True,)])
 
+print("\nМиграция 006 и постраничное чтение журнала")
+mig = (pathlib.Path(__file__).parent / "migrations" / "006_event_journal.sql").read_text(encoding="utf-8")
+try:
+    cur.execute(mig); res = cur.fetchone()
+    expect("миграция 006 устанавливает индексы и функцию", res == ("ok",), res)
+except Exception as e:
+    expect("миграция 006 устанавливает индексы и функцию", False, str(e).splitlines()[0])
+
+print("\nПостраничное чтение журнала")
+cur.execute("""insert into events (at, kind, data) values
+  ('2099-01-01 00:00:00+00', 'journal_page_test', '{}'),
+  ('2099-01-01 00:00:00+00', 'journal_page_test', '{}'),
+  ('2099-01-01 00:00:00+00', 'journal_page_test', '{}')
+  returning id""")
+tied_ids = [r[0] for r in cur.fetchall()]
+expected_ids = [r[0] for r in sql("select id from events order by at desc, id desc")]
+page_ids = []
+before = (None, None)
+while True:
+    page = sql("select id, at from journal_page(%s, %s, %s)", before[0], before[1], 7)
+    if not page: break
+    page_ids.extend(r[0] for r in page)
+    before = (page[-1][1], page[-1][0])
+expect("страницы без пропусков и повторов, включая одинаковое время", page_ids == expected_ids, page_ids[-7:])
+expect("одинаковое время сортируется по id по убыванию",
+       [r[0] for r in sql("select id from journal_page(%s, %s, %s)", None, None, 3)] == list(reversed(tied_ids)))
+expect_err("неполный курсор журнала", "journal_page", None, tied_ids[-1], 10, contains="Курсор журнала")
+expect_err("размер страницы журнала больше лимита", "journal_page", None, None, 1001, contains="Размер страницы журнала")
+
 print("\nЖурнал:", sql("select count(*) from events")[0][0], "записей; конфликты:", sql("select count(*) from figure_conflicts")[0][0])
 print(f"\nИтого: {ok} ✓, {fail} ✗")
 sys.exit(1 if fail else 0)

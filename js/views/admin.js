@@ -1,7 +1,7 @@
 // Раздел ведущего: игры, конфликты совладения, отмена записей журнала, памятка.
-import { rows, rowsAll, call, isAdmin } from '../api.js?v=202610151325';
-import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610151325';
-import { describe, gameBadge } from './common.js?v=202610151325';
+import { rows, rowsAll, call, isAdmin } from '../api.js?v=202610151523';
+import { h, card, btn, act, refresh, fmtTime, STATUS_RU } from '../ui.js?v=202610151523';
+import { describe, gameBadge } from './common.js?v=202610151523';
 
 export default async function adminView(root) {
   if (!isAdmin()) {
@@ -11,7 +11,7 @@ export default async function adminView(root) {
   const [games, conflicts, events, figures, squads] = await Promise.all([
     rowsAll('games', (q) => q.order('id', { ascending: false })),
     rowsAll('figure_conflicts', (q) => q.order('game_id').order('figure_id')),
-    rows('events', (q) => q.order('at', { ascending: false }).limit(60)),
+    rows('events', (q) => q.order('at', { ascending: false }).order('id', { ascending: false }).limit(60)),
     rowsAll('figures', (q) => q.order('id'), 'id, name'),
     rowsAll('squads', (q) => q.order('id'), 'id, name'),
   ]);

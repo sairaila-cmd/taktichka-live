@@ -878,7 +878,8 @@ with sync_playwright() as p:
           page.locator("ul.log li a.log-game").count() == 4 and badge.inner_text() == "Пять ликов одной Луны"
           and badge.get_attribute("href") == "#/game/1"
           and page.locator("ul.log li", has_text="Передача").locator("a.log-game").count() == 0)
-    T["events"][:] = [{"id": 1000 - i, "at": "2026-10-20T%02d:%02d:00Z" % (23 - i // 60, 59 - i % 60), "actor": 2,
+    T["events"][:] = [{"id": 1000 - i, "at": ("2026-10-20T19:00:00Z" if 298 <= i <= 301
+                                               else "2026-10-20T%02d:%02d:00Z" % (23 - i // 60, 59 - i % 60)), "actor": 2,
                        "kind": "roll", "game_id": 1 if i % 2 else None, "figure_id": None, "squad_id": None, "player_id": None,
                        "amount": i % 10 + 1, "data": {},
                        "comment": {0: "=1+1", 1: " \t+SUM(1;1)", 2: "-2+3", 3: "@SUM(1;1)",
@@ -888,22 +889,35 @@ with sync_playwright() as p:
     li = lambda: page.locator("ul.log li").count()
     more = page.locator("button:has-text('Показать ещё')")
     check("И-71 сначала 300 записей и кнопка «Показать ещё 300»", li() == 300 and more.is_visible(), li())
+    check("И-71 одинаковое время сохраняет порядок по номеру через границу страницы",
+          "№298" in page.locator("ul.log li").nth(298).inner_text()
+          and "№299" in page.locator("ul.log li").nth(299).inner_text())
     more.click(); page.wait_for_function("() => document.querySelectorAll('ul.log li').length === 600", timeout=10000)
-    check("И-71 «Показать ещё» → 600, порядок сохранён", li() == 600 and "№599" in page.locator("ul.log li").nth(599).inner_text())
+    check("И-71 «Показать ещё» → 600, порядок сохранён",
+          li() == 600 and "№300" in page.locator("ul.log li").nth(300).inner_text()
+          and "№301" in page.locator("ul.log li").nth(301).inner_text()
+          and "№599" in page.locator("ul.log li").nth(599).inner_text())
     more.click(); page.wait_for_function("() => document.querySelectorAll('ul.log li').length === 650", timeout=10000)
     check("И-71 последняя порция → 650, кнопки нет, «Это все записи»",
           li() == 650 and more.is_hidden() and page.locator("text=Это все записи.").is_visible(), li())
+    T["events"].extend({"id": 2000 + i,
+                        "at": ("2026-10-19T18:10:00Z" if 348 <= i <= 351
+                               else "2026-10-19T%02d:%02d:00Z" % (23 - i // 60, 59 - i % 60)),
+                        "actor": 2, "kind": "roll", "game_id": None, "figure_id": None, "squad_id": None, "player_id": None,
+                        "amount": 1, "data": {}, "comment": "tail-%d" % i, "reverted": False} for i in range(600))
     with page.expect_download(timeout=15000) as dl:
         page.click("button:has-text('Скачать весь журнал')")
     text = pathlib.Path(dl.value.path()).read_text(encoding="utf-8")
     rows = list(csv.reader(io.StringIO(text.lstrip("﻿"), newline=""), delimiter=";"))
-    check("И-72 «Скачать весь журнал (CSV)» → все 650 записей с заголовком и игрой",
-          text.startswith("﻿") and rows[0] == ["№", "Время", "Игра", "Кто", "Событие", "Комментарий", "Отменено"] and len(rows) == 651
+    check("И-72 «Скачать весь журнал (CSV)» → все 1250 записей через несколько страниц",
+          text.startswith("﻿") and rows[0] == ["№", "Время", "Игра", "Кто", "Событие", "Комментарий", "Отменено"] and len(rows) == 1251
           and rows[1][0] == "1000" and rows[1][5] == "'=1+1" and rows[2][5] == "' \t+SUM(1;1)"
           and rows[3][5] == "'-2+3" and rows[4][5] == "'@SUM(1;1)"
           and rows[5][5] == "обычный; \"текст\"\nсо второй строки" and rows[6][5] == "№5"
-          and rows[2][2:4] == ["Пять ликов одной Луны", "Зои"] and dl.value.suggested_filename.endswith(".csv"),
-          (len(rows), rows[:7]))
+          and rows[2][2:4] == ["Пять ликов одной Луны", "Зои"]
+          and [r[5] for r in rows[999:1003]] == ["tail-351", "tail-350", "tail-349", "tail-348"]
+          and len({r[0] for r in rows[1:]}) == 1250 and dl.value.suggested_filename.endswith(".csv"),
+          (len(rows), rows[999:1003]))
     b.close()
 
 srv.shutdown()

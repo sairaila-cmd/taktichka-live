@@ -140,6 +140,12 @@ def handle(route):
         if fn in RESULT: result = RESULT[fn]
         elif fn == "api_whoami": result = whoami(body.get("p_code"))
         elif fn == "api_admin_echoes": result = [dict(e) for e in T["echoes_public"] if e.get("game_id") == body.get("p_game", 1)]
+        elif fn == "journal_page":
+            result = sorted(T["events"], key=lambda e: (e["at"], e["id"]), reverse=True)
+            if body.get("p_before_at") is not None:
+                cursor = (body["p_before_at"], body["p_before_id"])
+                result = [e for e in result if (e["at"], e["id"]) < cursor]
+            result = result[:min(body["p_limit"], 1000)]
         elif fn == "api_roll": result = 7
         else: result = None
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(result, ensure_ascii=False))

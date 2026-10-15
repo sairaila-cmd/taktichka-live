@@ -1,15 +1,15 @@
 // Тактичка онлайн: маршруты (#/…), вход по коду, отрисовка разделов.
-import { restore, login, logout, session, loadRefs, isAdmin } from './api.js?v=202610151325';
-import { h, clear, toast } from './ui.js?v=202610151325';
-import figuresView from './views/figures.js?v=202610151325';
-import peopleView from './views/people.js?v=202610151325';
-import gamesView from './views/games.js?v=202610151325';
-import gameView from './views/game.js?v=202610151325';
-import battleView from './views/battle.js?v=202610151325';
-import rulesView from './views/rules.js?v=202610151325';
-import logView from './views/log.js?v=202610151325';
-import adminView from './views/admin.js?v=202610151325';
-import helpView from './views/help.js?v=202610151325';
+import { restore, login, logout, session, loadRefs, isAdmin } from './api.js?v=202610151523';
+import { h, clear, toast } from './ui.js?v=202610151523';
+import figuresView from './views/figures.js?v=202610151523';
+import peopleView from './views/people.js?v=202610151523';
+import gamesView from './views/games.js?v=202610151523';
+import gameView from './views/game.js?v=202610151523';
+import battleView from './views/battle.js?v=202610151523';
+import rulesView from './views/rules.js?v=202610151523';
+import logView from './views/log.js?v=202610151523';
+import adminView from './views/admin.js?v=202610151523';
+import helpView from './views/help.js?v=202610151523';
 
 const ROUTES = [
   [/^#?\/?$/, 'figures', figuresView],

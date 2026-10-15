@@ -1,8 +1,8 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610151325';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610151325';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610151325';
-import { statsCard } from './stats.js?v=202610151325';
+import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610151523';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610151523';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610151523';
+import { statsCard } from './stats.js?v=202610151523';
 
 
 export default async function gameView(root, gameId) {
@@ -647,7 +647,7 @@ async function load(gameId) {
     rows('turns', (q) => q.eq('game_id', gameId).order('number', { ascending: false }).limit(1)),
     byGame('battles', undefined, (q) => q.order('id', { ascending: false })),
     byGame('echoes_public'),
-    rows('events', (q) => q.eq('game_id', gameId).order('at', { ascending: false }).limit(200)),
+    rows('events', (q) => q.eq('game_id', gameId).order('at', { ascending: false }).order('id', { ascending: false }).limit(200)),
     rowsAll('figures', (q) => q.order('name')),
     rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
     rowsAll('figure_conflicts', (q) => q.eq('game_id', gameId).order('figure_id')),

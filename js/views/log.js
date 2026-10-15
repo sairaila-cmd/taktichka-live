@@ -1,15 +1,14 @@
 // Общий журнал: кто, когда и что менял. Порциями по 300, «Показать ещё» и выгрузка всего журнала в CSV.
-import { rows, rowsAll } from '../api.js?v=202610151325';
-import { h, btn, toast, plural } from '../ui.js?v=202610151325';
-import { logItem, describe, gameTitle, pname } from './common.js?v=202610151325';
+import { journalPage, rowsAll } from '../api.js?v=202610151523';
+import { h, btn, toast, plural } from '../ui.js?v=202610151523';
+import { logItem, describe, gameTitle, pname } from './common.js?v=202610151523';
 
 const PAGE = 300;
-const CHUNK = 1000; // Supabase отдаёт не больше 1000 строк за запрос
-const newest = (q) => q.order('at', { ascending: false }).order('id', { ascending: false });
+const CHUNK = 1000; // Максимальный размер страницы журнала
 
 export default async function logView(root) {
   const [events, figures, squads, games] = await Promise.all([
-    rows('events', (q) => newest(q).range(0, PAGE - 1)),
+    journalPage(null, PAGE),
     rowsAll('figures', (q) => q.order('id'), 'id, name'),
     rowsAll('squads', (q) => q.order('id'), 'id, name'),
     rowsAll('games', (q) => q.order('id'), 'id, title'),
@@ -17,6 +16,7 @@ export default async function logView(root) {
   const maps = { figures: Object.fromEntries(figures.map((f) => [f.id, f])), squads: Object.fromEntries(squads.map((s) => [s.id, s])),
     games: Object.fromEntries(games.map((g) => [g.id, g])) };
   let shown = 0;
+  let cursor = null;
   const list = h('ul', { class: 'log' });
   const lede = h('p', { class: 'lede' });
   const more = btn('Показать ещё ' + PAGE, () => loadMore());
@@ -25,6 +25,7 @@ export default async function logView(root) {
   const add = (batch) => {
     batch.forEach((ev) => list.append(logItem(ev, maps)));
     shown += batch.length;
+    if (batch.length) cursor = batch[batch.length - 1];
     lede.textContent = 'Показано ' + plural(shown, 'запись', 'записи', 'записей') +
       ', новые сверху. Отменённые ведущим записи зачёркнуты; у записей игры — метка с названием игры.';
     const end = batch.length < PAGE;
@@ -42,7 +43,7 @@ export default async function logView(root) {
 
   async function loadMore() {
     more.disabled = true;
-    try { add(await rows('events', (q) => newest(q).range(shown, shown + PAGE - 1))); }
+    try { add(await journalPage(cursor, PAGE)); }
     catch (e) { toast(e.message, true); }
     finally { more.disabled = false; }
   }
@@ -50,11 +51,13 @@ export default async function logView(root) {
   async function saveAll() {
     download.disabled = true;
     const all = [];
+    let before = null;
     try {
       for (;;) {
         download.textContent = 'Загрузка… ' + all.length;
-        const batch = await rows('events', (q) => newest(q).range(all.length, all.length + CHUNK - 1));
+        const batch = await journalPage(before, CHUNK);
         all.push(...batch);
+        if (batch.length) before = batch[batch.length - 1];
         if (batch.length < CHUNK) break;
       }
       const cell = (v) => {
