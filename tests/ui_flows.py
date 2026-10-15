@@ -845,6 +845,16 @@ with sync_playwright() as p:
     in_dialog(page, "Да")
     err = toast_error(page)
     check("В-62 «Закончить игру» с нерешённым → сайт объясняет, что не решено", "не выбрана погибшая фигура" in err, err)
+    # красим уведомление в чистый красный: под затемнением окна пиксель был бы темнее
+    pt = page.evaluate("""() => { const t = document.querySelector('.toast.error'); if (!t) return null;
+      t.style.background = 'rgb(255, 0, 0)'; const r = t.getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), dialog: document.getElementById('dialog').open }; }""")
+    px = None
+    if pt:
+        from PIL import Image
+        import io
+        px = Image.open(io.BytesIO(page.screenshot(clip={"x": pt["x"], "y": pt["y"], "width": 1, "height": 1}))).convert("RGB").getpixel((0, 0))
+    check("В-62 уведомление поверх окна и затемнения (не прячется под ним)", pt and pt["dialog"] and px == (255, 0, 0), (pt, px))
     c = wait_call(page, "api_admin_game")
     check("В-62 запрос ушёл со статусом closed", has(c, p_id=1, p_status="closed"), c)
     FAIL.clear(); page.keyboard.press("Escape")

@@ -1,6 +1,6 @@
 // Общее для разделов: подписи событий журнала, карточка отряда, имена.
-import { cache, session } from '../api.js?v=202610151535';
-import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610151535';
+import { cache, session } from '../api.js?v=202610152342';
+import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610152342';
 
 export const pname = (id) => (cache.playerById && cache.playerById[id] ? cache.playerById[id].name : (id == null ? '—' : '#' + id));
 export const res = (n) => plural(Math.abs(n), 'Ресурс', 'Ресурса', 'Ресурсов');
@@ -99,7 +99,7 @@ export function figLink(f, text) {
   return h('a', { href: '#/figure/' + f.id, onclick: (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    import('./figure-card.js?v=202610151535').then((m) => m.openFigure(f.id));
+    import('./figure-card.js?v=202610152342').then((m) => m.openFigure(f.id));
   } }, text || f.name);
 }
 
@@ -129,10 +129,15 @@ export function squadCard(sq, o, actions) {
       h('span', { class: 'name' }, sq.name, o.mine ? h('span', { class: 'badge moon', style: 'margin-left: 8px' }, 'ваш') : null),
       h('span', { class: 'stats small' }, 'С ', h('b', {}, t.s), ' Л ', h('b', {}, t.l), ' В ', h('b', {}, t.v))),
     tags.length ? h('div', { class: 'row' }, tags) : null,
-    h('ul', { class: 'figs' }, o.figs.map(({ fig, sf }) => h('li', { class: 'st-' + sf.state },
-      figLine(fig, h('span', {},
-        sf.state !== 'ok' ? h('span', { class: 'badge warn' }, STATE_RU[sf.state]) : null,
-        sf.borrowed ? h('span', { class: 'badge info' }, 'взята у противника') : null))))),
+    h('ul', { class: 'figs' }, o.figs.map(({ fig, sf }) => {
+      // погибшая в этой игре: «погибла» вместо прежнего состояния (в отряде оно не меняется)
+      const dead = fig.id === sq.dead_figure;
+      return h('li', { class: 'st-' + (dead ? 'dead' : sf.state) },
+        figLine(fig, h('span', {},
+          dead ? h('span', { class: 'badge bad' }, 'погибла')
+            : sf.state !== 'ok' ? h('span', { class: 'badge warn' }, STATE_RU[sf.state]) : null,
+          sf.borrowed ? h('span', { class: 'badge info' }, 'взята у противника') : null)));
+    })),
     o.trophies && o.trophies.length ? h('div', { class: 'small' }, 'Трофеи: ',
       o.trophies.map((tr, i) => h('span', { title: tr.description || '' }, i ? ', ' : '', '«' + tr.name + '»',
         (tr.bonus_s || tr.bonus_l || tr.bonus_v) ? h('span', { class: 'muted' }, ' (' + [tr.bonus_s && '+' + tr.bonus_s + 'С', tr.bonus_l && '+' + tr.bonus_l + 'Л', tr.bonus_v && '+' + tr.bonus_v + 'В'].filter(Boolean).join(' ') + ')') : null))) : null,

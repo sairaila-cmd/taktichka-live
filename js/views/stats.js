@@ -1,8 +1,8 @@
 // Статистика игры: плитки, состояния фигур и графики (как в дашборде «Фигуры тактички»),
 // по фигурам в отрядах этой игры. Графики — простое SVG, цвета дашборда: Сила — луна,
 // Лояльность — камень, Влияние — лунный свет.
-import { cache } from '../api.js?v=202610151535';
-import { h, NOM_GLYPH, STATE_RU, plural } from '../ui.js?v=202610151535';
+import { cache } from '../api.js?v=202610152342';
+import { h, NOM_GLYPH, STATE_RU, plural } from '../ui.js?v=202610152342';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const P = [['s', 'Сила', '#e7e07c'], ['l', 'Лояльность', '#9a9a96'], ['v', 'Влияние', '#f6f2de']];
@@ -150,7 +150,8 @@ export function statsCard(d, gameId) {
     all.push({ fig, sf: { state: 'left', borrowed: false }, sq, left: true });
   });
   if (!all.length) return h('section', { class: 'card' }, h('h2', {}, 'Статистика игры'), h('p', { class: 'empty' }, 'Отряды ещё не собраны.'));
-  const stateOf = (x) => (x.fig.status === 'dead' && x.fig.died_game === gameId ? 'dead' : x.sf.state);
+  // погибшая — по отряду (так видно и в тестовой игре, где фигура в общем списке жива)
+  const stateOf = (x) => ((x.sq && x.sq.dead_figure === x.fig.id) || (x.fig.status === 'dead' && x.fig.died_game === gameId) ? 'dead' : x.sf.state);
   const count = (list) => { const c = {}; list.forEach((x) => { const k = stateOf(x); c[k] = (c[k] || 0) + 1; }); return c; };
   const states = count(all);
   const borrowed = all.filter((x) => x.sf.borrowed).length;

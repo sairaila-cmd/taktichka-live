@@ -36,7 +36,16 @@ export function toast(text, error = false) {
   const box = document.getElementById('toasts');
   const t = h('div', { class: 'toast' + (error ? ' error' : ''), role: error ? 'alert' : 'status' }, text);
   box.append(t);
-  setTimeout(() => t.remove(), error ? 7000 : 3500);
+  // Уведомления — в верхнем слое браузера (popover), иначе открытое окно (showModal) их затемняет.
+  // Переоткрытие поднимает их над окном, открытым позже.
+  if (box.showPopover) {
+    if (box.matches(':popover-open')) box.hidePopover();
+    box.showPopover();
+  }
+  setTimeout(() => {
+    t.remove();
+    if (box.hidePopover && !box.children.length && box.matches(':popover-open')) box.hidePopover();
+  }, error ? 7000 : 3500);
 }
 
 // Обёртка для действий: ошибка базы → понятное уведомление; успех → onDone.

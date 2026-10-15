@@ -156,6 +156,19 @@ with sync_playwright() as p:
     cells = [c.strip() for c in pair.split("\t")]
     check("у пары — общий кошелёк 6, 3 отряда, 4 фигуры, доп. отряды по большему (2)", cells[1:5] == ["6 общий кошелёк", "3", "4", "2"], cells)
     check("не участвующие — в свёрнутом блоке (Самум)", "Не участвуют в этой игре (1)" in page.locator("#view").inner_text())
+
+    print("\nПогибшая фигура в отряде")
+    # как в тестовой игре: в отряде выбрана погибшая, в отряде она «повреждена», в общем списке жива
+    T["squad_figures"].append({"squad_id": 4, "figure_id": 25, "game_id": 1, "strategist_id": 2, "state": "damaged", "borrowed": False})
+    T["squads"][3]["dead_figure"] = 25
+    page.goto(BASE + "#/game/1")
+    page.wait_for_selector("text=Статистика игры", timeout=20000)
+    li = page.locator(".squads .squad:has(.name:text-is('Павшие')) li:has-text('Выбывший пёс')").first
+    lt = li.inner_text()
+    check("у погибшей значок «погибла», а не «повреждена»", "погибла" in lt and "повреждена" not in lt, lt)
+    check("…и строка зачёркнута (st-dead)", "st-dead" in (li.get_attribute("class") or ""), li.get_attribute("class"))
+    st = page.locator("section.card:has(h2:has-text('Статистика игры'))").inner_text()
+    check("статистика игры считает её погибшей", "1\nпогибла" in st, st[:300])
     print("\nТелефон")
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(BASE + "#/game/1")

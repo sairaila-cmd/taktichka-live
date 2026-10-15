@@ -118,7 +118,7 @@ expect_err("начислить не-админом", "api_admin_resources", ANYA
 expect_ok("начислить админом", "api_admin_resources", A, 4, 2, None)
 
 print("\nИгра и отряды")
-g = expect_ok("создать игру", "api_admin_game", A, None, "Тестовая", None, "draft")
+g = expect_ok("создать игру", "api_admin_game", A, None, "Первая", None, "draft")
 s1 = expect_ok("отряд Ани", "api_squad_save", ANYA, g, None, "Волки", [fig["Ладья-натиск"], fig["Пешка-добивание"], fig["Конь-осведомленность"]])
 add(ANYA, "Пешка-запас", "пешка", 1, 1, 1, ["Мобильность"]); add(ANYA, "Конь-запас", "конь", 1, 1, 1, ["Мобильность"])
 expect_err("4 фигуры", "api_squad_save", ANYA, g, None, "Лишние", [fig["Ферзь-1"], fig["Пешка-запас"], fig["Пешка-воротила"], fig["Конь-запас"]], contains="от 1 до 3")
@@ -132,6 +132,13 @@ s1b = expect_ok("второй отряд Ани", "api_squad_save", ANYA, g, Non
 expect_err("третий отряд без бонуса", "api_squad_save", ANYA, g, None, "Третий", [fig["Ферзь-2"]], contains="Отрядов больше")
 s2 = expect_ok("отряд Бори", "api_squad_save", BORYA, g, None, "Совы", [fig["Пешка-шпионаж"], fig["Ладья-лечение"], fig["Офицер-всем-друг"]])
 expect_ok("2-й отряд Бори", "api_squad_save", BORYA, g, None, "Совы-2", [fig["Ладья-лечение"]]) if False else None
+src = lambda name: sql("select sources from figures where id=%s", fig[name])[0][0]
+print("    источники Ладьи-натиск:", src("Ладья-натиск"))
+if src("Ладья-натиск") == "тест; Первая" and src("Пешка-шпионаж") == "тест; Первая": ok += 1; print("  ✓ название игры дописано в «Источники» фигур отряда")
+else: fail += 1; print("  ✗ источники:", src("Ладья-натиск"), src("Пешка-шпионаж"))
+expect_ok("пересборка «Волков» тем же составом", "api_squad_save", ANYA, g, s1, "Волки", [fig["Ладья-натиск"], fig["Пешка-добивание"], fig["Конь-осведомленность"]])
+if src("Ладья-натиск").count("Первая") == 1: ok += 1; print("  ✓ повторное сохранение не дублирует источник")
+else: fail += 1; print("  ✗ дубль источника:", src("Ладья-натиск"))
 
 print("\nНапарники")
 expect_ok("Вера зовёт Гошу", "api_partner_invite", VERA, g, 5)
@@ -144,7 +151,7 @@ expect_err("третий напарник", "api_admin_pair", A, g, 4, 2, contai
 print("    лимит отрядов пары = 2 + max(0,2) = 4")
 
 print("\nСтарт игры")
-expect_ok("старт", "api_admin_game", A, g, "Тестовая", None, "running")
+expect_ok("старт", "api_admin_game", A, g, "Первая", None, "running")
 expect_err("пересборка после старта", "api_squad_save", ANYA, g, s1, "Волки", [fig["Ладья-натиск"]], contains="началась")
 
 print("\nСвойства вне боя")
@@ -194,19 +201,19 @@ print("\nГибель в конце игры")
 for f_ in [fig["Пешка-шпионаж"], fig["Ладья-лечение"], fig["Офицер-всем-друг"]]:
     call("api_figure_state", BORYA, s2, f_, "damaged", None)
 print("    «Совы» уничтожены:", sql("select destroyed from squads where id=%s", s2))
-expect_err("закрыть игру без решения", "api_admin_game", A, g, "Тестовая", None, "closed", contains="погибшие")
+expect_err("закрыть игру без решения", "api_admin_game", A, g, "Первая", None, "closed", contains="погибшие")
 expect_err("Аня выбирает гибель в чужом отряде", "api_squad_death", ANYA, s2, fig["Ладья-лечение"], contains="не ваш")
 dead = expect_ok("жребий", "api_squad_death", BORYA, s2, None)
 print("    погибла:", sql("select name, status, died_how from figures where id=%s", dead))
 expect_err("повторный выбор", "api_squad_death", BORYA, s2, fig["Ладья-лечение"], contains="уже выбрана")
-expect_err("закрыть игру: кошелёк пары не разделён", "api_admin_game", A, g, "Тестовая", None, "closed", contains="кошельков")
+expect_err("закрыть игру: кошелёк пары не разделён", "api_admin_game", A, g, "Первая", None, "closed", contains="кошельков")
 w = sql("select wallet from strategists where id=%s", sv)[0][0]
 expect_err("раздел: сумма не сходится", "api_admin_split_wallet", A, sv, '{"4": %d, "5": 99}' % w, contains="не равна")
 expect_ok("раздел кошелька", "api_admin_split_wallet", A, sv, '{"4": %d, "5": 0}' % w)
-expect_err("закрыть игру: трофеи не решены", "api_admin_game", A, g, "Тестовая", None, "closed", contains="трофеев")
+expect_err("закрыть игру: трофеи не решены", "api_admin_game", A, g, "Первая", None, "closed", contains="трофеев")
 expect_ok("трофей остаётся у Ани", "api_admin_trophy_end", A, t[0], 2)
 expect_ok("трофей исчезает", "api_admin_trophy_end", A, t[2], None)
-expect_ok("закрыть игру", "api_admin_game", A, g, "Тестовая", None, "closed")
+expect_ok("закрыть игру", "api_admin_game", A, g, "Первая", None, "closed")
 
 print("\nСледующая игра")
 g2 = expect_ok("новая игра", "api_admin_game", A, None, "Вторая", None, "draft")
@@ -510,6 +517,27 @@ expect("фаза осталась «действия»", pointer()[2] == "action
 expect_err("указатель на стратега из другой игры", "api_admin_turn_set", A, g3, s_bor, None, None, contains="не участвует в игре")
 expect_ptr("указатель не сдвинулся", "пара", 1)
 
+print("\nИгра в «Источниках»: переименование и тестовые игры")
+expect("после обмена «Первая» у фигур по-прежнему одна", all(src(n).count("Первая") == 1 for n in ["Пешка-воротила", "Ферзь-1"]),
+       [src(n) for n in ["Пешка-воротила", "Ферзь-1"]])
+expect_ok("переименовать «Пятая» → «Пятая игра»", "api_admin_game", A, g5, "Пятая игра", None, "draft")
+parts = [x.strip() for x in src("Пешка-добивание").split(";")]
+expect("в «Источниках» новое название вместо старого", "Пятая игра" in parts and "Пятая" not in parts, parts)
+gt = expect_ok("тестовая игра", "api_admin_game", A, None, "Тест гибели", None, "draft")
+add(BORYA, "Б-тестовая", "пешка", 1, 1, 1, ["Мобильность"])
+qt = expect_ok("Боря: отряд в тестовой игре", "api_squad_save", BORYA, gt, None, "Пробный", [fig["Б-тестовая"]])
+expect("название тестовой игры не попало в «Источники»", "Тест гибели" not in src("Б-тестовая"), src("Б-тестовая"))
+expect_ok("старт тестовой игры", "api_admin_game", A, gt, "Тест гибели", None, "running")
+expect_ok("фигура повреждена — отряд уничтожен", "api_figure_state", BORYA, qt, fig["Б-тестовая"], "damaged", None)
+expect_ok("гибель в тестовой игре", "api_squad_death", BORYA, qt, fig["Б-тестовая"])
+expect("в отряде погибшая отмечена, в общем списке фигура жива",
+       sql("select dead_figure from squads where id=%s", qt)[0][0] == fig["Б-тестовая"]
+       and sql("select status, died_game from figures where id=%s", fig["Б-тестовая"])[0] == ("active", None))
+expect("в журнале гибель с пометкой test",
+       sql("select data->>'test' from events where kind='figure_death' and figure_id=%s", fig["Б-тестовая"]) == [("true",)])
+expect_ok("и её можно поставить в отряд другой игры", "api_squad_save", BORYA, g5, None, "После теста", [fig["Б-тестовая"]])
+expect("в другой игре название дописалось", "Пятая игра" in src("Б-тестовая"), src("Б-тестовая"))
+
 print("\nМиграция 005 на старой базе")
 cur.execute("update squad_figures set borrowed = true where figure_id=%s and game_id=%s", (fig["Ферзь-1"], g4))  # «застрявшая» пометка
 mig = (pathlib.Path(__file__).parent / "migrations" / "005_admin_checks.sql").read_text(encoding="utf-8")
@@ -529,6 +557,26 @@ try:
     expect("миграция 006 устанавливает индексы и функцию", res == ("ok",), res)
 except Exception as e:
     expect("миграция 006 устанавливает индексы и функцию", False, str(e).splitlines()[0])
+
+print("\nМиграция 007 на старой базе")
+# как в живой базе до 007: фигура погибла в тестовой игре, источник «Пользователь», игры не в источниках
+cur.execute("update figures set status='dead', died_game=%s, died_how='выбор' where id=%s", (gt, fig["Б-тестовая"]))
+cur.execute("update figures set sources='Метро; Пользователь' where id=%s", (fig["Ладья-В1"],))
+cur.execute("update figures set sources='тест' where id=%s", (fig["Ладья-натиск"],))
+mig = (pathlib.Path(__file__).parent / "migrations" / "007_game_in_sources.sql").read_text(encoding="utf-8")
+try:
+    cur.execute(mig); res = cur.fetchone()
+    expect("миграция 007 выполняется повторно, проверочная строка = 1", res == (1,), res)
+except Exception as e:
+    expect("миграция 007 выполняется", False, str(e).splitlines()[0])
+expect("погибшая в тестовой игре снова жива", sql("select status from figures where id=%s", fig["Б-тестовая"]) == [("active",)])
+expect("«Пользователь» → «Пять цветов одной Луны»", src("Ладья-В1").startswith("Метро; Пять цветов одной Луны"), src("Ладья-В1"))
+expect("сыгранные игры дописаны в источники, тестовые — нет",
+       all(x in src("Ладья-натиск") for x in ["Первая", "Луны"]) and "Тест гибели" not in src("Б-тестовая"), src("Ладья-натиск"))
+try:
+    q.execute("select add_source(1, 'x')"); fail += 1; print("  ✗ add_source доступна из браузера")
+except Exception:
+    ok += 1; print("  ✓ add_source из браузера недоступна")
 
 print("\nПостраничное чтение журнала")
 cur.execute("""insert into events (at, kind, data) values
