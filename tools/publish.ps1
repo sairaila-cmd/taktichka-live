@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 
 $site  = Split-Path -Parent $PSScriptRoot
 $repo  = "sairaila-cmd/taktichka-live"
-$paths = @("index.html", "README.md", ".gitignore", ".gitattributes", "css", "js", "img", "supabase", "tools", "tests")
+$paths = @("index.html", "README.md", ".gitignore", ".gitattributes", ".github", "css", "js", "img", "supabase", "tools", "tests")
 
 if (-not (Test-Path (Join-Path $site ".git"))) {
     git -C $site init --quiet -b main

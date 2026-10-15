@@ -36,3 +36,7 @@ python tests/test_battle.py                          # расчёт боя (pip 
 python tests/ui_mock.py                              # страницы игры и боя в Chromium на подставных данных (pip install playwright)
 python tests/smoke.py                                # все разделы против живой базы, только чтение
 ```
+
+GitHub Actions автоматически запускает проверки схемы/API, расчёта боя и UI на подставных
+данных при push и pull request. Проверка `tests/smoke.py` в CI не запускается: она обращается
+к живой базе; её запускают отдельно, когда нужна дымовая проверка опубликованного сайта.

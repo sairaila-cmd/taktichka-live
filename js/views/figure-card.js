@@ -1,8 +1,8 @@
 // Окно фигуры: свойства, владельцы, история и правки по коду. Открывается поверх любой
 // страницы (раздел «Фигуры», страница игры, бой) — без перехода.
-import { rows, call, cache, session, isAdmin } from '../api.js?v=202610151523';
-import { h, btn, modal, form, act, refresh, NOM_GLYPH } from '../ui.js?v=202610151523';
-import { logList, pname } from './common.js?v=202610151523';
+import { rows, call, cache, session, isAdmin } from '../api.js?v=202610151535';
+import { h, btn, modal, form, act, refresh, NOM_GLYPH } from '../ui.js?v=202610151535';
+import { logList, pname } from './common.js?v=202610151535';
 
 export async function openFigure(id) {
   const [figs, owners, events] = await Promise.all([
