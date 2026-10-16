@@ -1,8 +1,8 @@
 // Статистика игры: плитки, состояния фигур и графики (как в дашборде «Фигуры тактички»),
 // по фигурам в отрядах этой игры. Графики — простое SVG в оттенках серого (подложка сайта
 // чёрно-белая): Сила — белый, Влияние — светло-серый, Лояльность — серый.
-import { cache } from '../api.js?v=202610161643';
-import { h, NOM_GLYPH, STATE_RU, plural } from '../ui.js?v=202610161643';
+import { cache } from '../api.js?v=202610161719';
+import { h, NOM_GLYPH, STATE_RU, plural } from '../ui.js?v=202610161719';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const P = [['s', 'Сила', '#ffffff'], ['l', 'Лояльность', '#7a7a7a'], ['v', 'Влияние', '#bdbdbd']];
@@ -138,7 +138,22 @@ export function statsCard(d, gameId) {
   // Фигуры, которые раньше стояли в отрядах этой игры, а потом были убраны (правка, роспуск отряда).
   const nowIn = new Set((d.allSquadFigures || []).map((x) => x.figure_id));
   const lastSquad = {};
-  (d.lineup || []).forEach((e) => {
+  const owns = (pid, fid) => pid != null && ((d.ownersOf || {})[fid] || []).includes(pid);
+  [...(d.lineup || [])].sort((a, b) => String(a.at).localeCompare(String(b.at)) || (a.id || 0) - (b.id || 0)).forEach((e) => {
+    if (e.kind === 'leave_game') {
+      // Стратега убрали из игры (или он вышел сам): база снимает его фигуры и удаляет опустевшие
+      // отряды. Это не «выбыла из отряда» — такие фигуры в статистике не считаются.
+      const pid = e.player_id, partner = e.data && e.data.partner;
+      const gone = (fid) => !nowIn.has(fid) && !d.squadById[lastSquad[fid]];
+      // одиночка уходит со всеми отрядами: отряд считаем его, если в нём была его фигура
+      const hisSquads = new Set(Object.keys(lastSquad).filter((fid) => gone(Number(fid)) && owns(pid, Number(fid))).map((fid) => lastSquad[fid]));
+      Object.keys(lastSquad).forEach((fid) => {
+        const id = Number(fid);
+        if (!gone(id)) return;
+        if (partner == null ? hisSquads.has(lastSquad[fid]) : owns(pid, id) && !owns(partner, id)) delete lastSquad[fid];
+      });
+      return;
+    }
     const ids = e.kind === 'squad_save' ? ((e.data && e.data.figures) || []) : [e.figure_id];
     ids.forEach((id) => { if (id != null) lastSquad[id] = e.squad_id; });
   });

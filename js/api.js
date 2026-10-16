@@ -1,5 +1,5 @@
 // Связь с базой: чтение таблиц, вызовы api_* с личным кодом, подписки на изменения.
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610161643';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610161719';
 
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },

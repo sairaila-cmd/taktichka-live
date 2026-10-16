@@ -1,21 +1,21 @@
 // Тактичка онлайн: маршруты (#/…), вход по коду, отрисовка разделов.
-import { restore, login, logout, session, loadRefs, isAdmin } from './api.js?v=202610161643';
-import { h, clear, toast } from './ui.js?v=202610161643';
-import figuresView from './views/figures.js?v=202610161643';
-import { startAlerts } from './alerts.js?v=202610161643';
+import { restore, login, logout, session, loadRefs, isAdmin } from './api.js?v=202610161719';
+import { h, clear, toast } from './ui.js?v=202610161719';
+import figuresView from './views/figures.js?v=202610161719';
+import { startAlerts } from './alerts.js?v=202610161719';
 
 // Главная (фигуры) грузится сразу, остальные разделы — когда их впервые открыли.
 // Номер ?v= у import() — тот же, что у статических импортов (иначе два экземпляра модулей и теряется вход).
 // view.load() — начать загрузку заранее (render зовёт её параллельно со справочниками из базы).
 const lazy = (load) => Object.assign(async (...args) => (await load()).default(...args), { load });
-const peopleView = lazy(() => import('./views/people.js?v=202610161643'));
-const gamesView = lazy(() => import('./views/games.js?v=202610161643'));
-const gameView = lazy(() => import('./views/game.js?v=202610161643'));
-const battleView = lazy(() => import('./views/battle.js?v=202610161643'));
-const rulesView = lazy(() => import('./views/rules.js?v=202610161643'));
-const logView = lazy(() => import('./views/log.js?v=202610161643'));
-const adminView = lazy(() => import('./views/admin.js?v=202610161643'));
-const helpView = lazy(() => import('./views/help.js?v=202610161643'));
+const peopleView = lazy(() => import('./views/people.js?v=202610161719'));
+const gamesView = lazy(() => import('./views/games.js?v=202610161719'));
+const gameView = lazy(() => import('./views/game.js?v=202610161719'));
+const battleView = lazy(() => import('./views/battle.js?v=202610161719'));
+const rulesView = lazy(() => import('./views/rules.js?v=202610161719'));
+const logView = lazy(() => import('./views/log.js?v=202610161719'));
+const adminView = lazy(() => import('./views/admin.js?v=202610161719'));
+const helpView = lazy(() => import('./views/help.js?v=202610161719'));
 
 const ROUTES = [
   [/^#?\/?$/, 'figures', figuresView],

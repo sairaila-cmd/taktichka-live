@@ -1,9 +1,9 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161643';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161643';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161643';
-import { statsCard } from './stats.js?v=202610161643';
-import { notifyButton } from '../alerts.js?v=202610161643';
+import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161719';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161719';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161719';
+import { statsCard } from './stats.js?v=202610161719';
+import { notifyButton } from '../alerts.js?v=202610161719';
 
 
 export default async function gameView(root, gameId) {
@@ -706,9 +706,10 @@ async function load(gameId) {
     rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
     rowsAll('figure_conflicts', (q) => q.eq('game_id', gameId).order('figure_id')),
     rowsAll('trophies', (q) => q.eq('status', 'kept').order('id')),
-    // история составов: какие фигуры когда-либо стояли в отрядах игры (для статистики)
-    rowsAll('events', (q) => q.eq('game_id', gameId).in('kind', ['squad_save', 'figure_move']).order('at').order('id'),
-      'kind, squad_id, figure_id, data, at, reverted'),
+    // история составов: какие фигуры когда-либо стояли в отрядах игры (для статистики);
+    // leave_game — стратег убран из игры: его фигуры из истории не считаются
+    rowsAll('events', (q) => q.eq('game_id', gameId).in('kind', ['squad_save', 'figure_move', 'leave_game']).order('at').order('id'),
+      'id, kind, squad_id, figure_id, player_id, data, at, reverted'),
     rowsAll('events', (q) => q.eq('game_id', gameId).eq('kind', 'property_use').order('at').order('id'),
       'figure_id, data, reverted'),
   ]);

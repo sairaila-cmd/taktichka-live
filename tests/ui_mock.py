@@ -63,6 +63,21 @@ with sync_playwright() as p:
     if SHOTS: stats.screenshot(path=str(SHOTS / "stats.png"))
     check("статистика стоит перед журналом", page.evaluate("""() => { const hs = [...document.querySelectorAll('#view h2')].map(h => h.textContent);
       return hs.indexOf('Статистика игры') === hs.indexOf('Журнал игры') - 1; }"""))
+    # Стратега убрали из игры: база удалила его отряд (99) — его фигура не «выбыла из отряда», а пропадает из статистики.
+    saved_events = list(T["events"])
+    T["events"] += [
+        {"id": 90, "at": "2026-10-20T15:10:00Z", "actor": 1, "kind": "squad_save", "game_id": 1, "figure_id": None, "squad_id": 99,
+         "player_id": None, "amount": None, "data": {"name": "Ушедшие", "figures": [25]}, "comment": None, "reverted": False},
+        {"id": 91, "at": "2026-10-20T15:20:00Z", "actor": 1, "kind": "leave_game", "game_id": 1, "figure_id": None, "squad_id": None,
+         "player_id": 3, "amount": 0, "data": {"squads": 1, "partner": None}, "comment": "убрал ведущий", "reverted": False}]
+    page.reload()
+    page.wait_for_selector("text=Статистика игры", timeout=20000)
+    st = page.locator("section.card:has(h2:has-text('Статистика игры'))").inner_text()
+    check("стратег убран: его фигуры не в статистике (7 фигур, выбывших 0)",
+          "7\nфигур в отрядах (сейчас и раньше)" in st and "0\nвыбыла из отряда" in st, st[:200])
+    T["events"][:] = saved_events
+    page.reload()
+    page.wait_for_selector("text=Статистика игры", timeout=20000)
     volki = page.locator("section.card:has(h2:has-text('Моё участие')) .squad:has-text('Волки')")
     check("Зои в свой черёд: «Ход» у Волков активен", volki.locator("button:has-text('Ход')").is_enabled())
     check("у Зои есть кнопки отряда (в «Моём участии» и в общем списке)", page.locator("button:has-text('Напасть')").count() == 2)

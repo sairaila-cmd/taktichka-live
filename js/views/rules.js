@@ -1,6 +1,6 @@
 // Свойства фигур и краткие правила (из таблицы «Пять ликов одной Луны» и правил боя).
-import { cache } from '../api.js?v=202610161643';
-import { h, card, GIFT_RU } from '../ui.js?v=202610161643';
+import { cache } from '../api.js?v=202610161719';
+import { h, card, GIFT_RU } from '../ui.js?v=202610161719';
 
 const PHASE_ORDER = ['Условие', 'Сила', 'Риск', 'Ущерб', 'Перемещение'];
 
