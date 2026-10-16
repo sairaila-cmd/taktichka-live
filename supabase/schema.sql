@@ -127,10 +127,11 @@ create table trophies (
 create table battles (
   id         serial primary key,
   game_id    int not null references games(id) on delete cascade,
-  attacker   int not null references squads(id),
-  defender   int not null references squads(id),
+  -- бои удалённого отряда (распущен, слит Обменом, игра отменена) удаляются вместе с ним
+  attacker   int not null references squads(id) on delete cascade,
+  defender   int not null references squads(id) on delete cascade,
   status     text not null default 'open' check (status in ('open','closed')),
-  winner     int references squads(id),     -- null при ничьей
+  winner     int references squads(id) on delete set null,     -- null при ничьей
   result     jsonb,
   opened_by  int references players(id),
   created_at timestamptz not null default now()
@@ -140,7 +141,7 @@ create table battle_actions (
   id         serial primary key,
   battle_id  int not null references battles(id) on delete cascade,
   kind       text not null,          -- property | skip | roll | reroll | damage | note
-  squad_id   int references squads(id),
+  squad_id   int references squads(id) on delete cascade,
   figure_id  int references figures(id),
   property   text,
   params     jsonb not null default '{}',
@@ -303,6 +304,24 @@ begin
   return s;
 end $$;
 
+-- Идущий бой, в котором участвует отряд стратега (null — такого нет).
+create or replace function open_battle_of(p_strategist int) returns battles
+language sql stable as $$
+  select b.* from battles b
+  where b.status = 'open' and exists (select 1 from squads s
+    where s.id in (b.attacker, b.defender) and s.strategist_id = p_strategist)
+  order by b.id limit 1
+$$;
+
+-- Отряд в идущем бою нельзя распустить или слить — сначала итог боя.
+create or replace function check_not_in_battle(p_squad int) returns void
+language plpgsql as $$
+begin
+  if exists (select 1 from battles where status = 'open' and p_squad in (attacker, defender)) then
+    raise exception 'Отряд «%» сейчас в бою — сначала подведите итог боя', (select name from squads where id = p_squad);
+  end if;
+end $$;
+
 -- Списать / начислить Ресурсы стратега (у пары — общий кошелёк).
 create or replace function strategist_pay(p_strategist int, p_amount int, p_actor int,
   p_reason text, p_game int, p_figure int, p_squad int) returns void
@@ -447,27 +466,29 @@ end $$;
 -- ───────────────────────── API: ресурсы ─────────────────────────
 
 -- Общий кошелёк пары, в которой игрок состоит в незакрытой игре (null — играет один или не играет).
--- Пока пара играет, все Ресурсы участников идут через этот кошелёк.
-create or replace function open_wallet(p_player int) returns int
+-- Пока пара играет, все Ресурсы участников идут через этот кошелёк. p_game — именно в этой игре
+-- (страница «Персонажи» выбранной игры); без неё — в последней незакрытой.
+create or replace function open_wallet(p_player int, p_game int default null) returns int
 language sql stable as $$
   select s.id from strategist_members m
     join strategists s on s.id = m.strategist_id
     join games g on g.id = s.game_id
   where m.player_id = p_player and s.wallet is not null and g.status <> 'closed'
+    and (p_game is null or g.id = p_game)
   order by g.id desc limit 1
 $$;
 
 -- Сколько Ресурсов у игрока сейчас (у пары — общий кошелёк).
-create or replace function balance_of(p_player int) returns int
+create or replace function balance_of(p_player int, p_game int default null) returns int
 language sql stable as $$
-  select coalesce((select wallet from strategists where id = open_wallet(p_player)),
+  select coalesce((select wallet from strategists where id = open_wallet(p_player, p_game)),
                   (select resources from players where id = p_player))
 $$;
 
 -- Изменить Ресурсы игрока (или общий кошелёк его пары); в минус нельзя.
-create or replace function add_resources(p_player int, p_amount int) returns int
+create or replace function add_resources(p_player int, p_amount int, p_game int default null) returns int
 language plpgsql security definer set search_path = public as $$
-declare w int := open_wallet(p_player); have int := balance_of(p_player);
+declare w int := open_wallet(p_player, p_game); have int := balance_of(p_player, p_game);
 begin
   if have + p_amount < 0 then
     raise exception 'Не хватает Ресурсов (есть %)', have || case when w is null then '' else ' в общем кошельке пары' end;
@@ -500,29 +521,30 @@ begin
   return n;
 end $$;
 
-create or replace function api_resources_transfer(p_code text, p_to int, p_amount int, p_comment text)
-returns void
+-- p_game — игра, выбранная на странице «Персонажи»: кошельки пар берутся из неё (null — как раньше).
+create or replace function api_resources_transfer(p_code text, p_to int, p_amount int, p_comment text,
+  p_game int default null) returns void
 language plpgsql security definer set search_path = public as $$
 declare me players := auth(p_code); wf int; wt int;
 begin
   if p_amount is null or p_amount <= 0 then raise exception 'Сумма должна быть больше нуля'; end if;
   if p_to = me.id then raise exception 'Нельзя передать самому себе'; end if;
-  if open_wallet(me.id) is not null and open_wallet(me.id) = open_wallet(p_to) then
+  if open_wallet(me.id, p_game) is not null and open_wallet(me.id, p_game) = open_wallet(p_to, p_game) then
     raise exception 'Вы напарники: Ресурсы и так общие';
   end if;
-  wf := add_resources(me.id, -p_amount);
-  wt := add_resources(p_to, p_amount);
-  perform log_event(me.id, 'resources_transfer', null, null, null, p_to, p_amount,
+  wf := add_resources(me.id, -p_amount, p_game);
+  wt := add_resources(p_to, p_amount, p_game);
+  perform log_event(me.id, 'resources_transfer', p_game, null, null, p_to, p_amount,
     jsonb_build_object('from', me.id, 'to', p_to, 'from_wallet', wf, 'to_wallet', wt), p_comment);
 end $$;
 
-create or replace function api_admin_resources(p_code text, p_player int, p_amount int, p_comment text)
-returns void
+create or replace function api_admin_resources(p_code text, p_player int, p_amount int, p_comment text,
+  p_game int default null) returns void
 language plpgsql security definer set search_path = public as $$
 declare me players := auth_admin(p_code); w int;
 begin
-  w := add_resources(p_player, p_amount);
-  perform log_event(me.id, 'resources_grant', null, null, null, p_player, p_amount,
+  w := add_resources(p_player, p_amount, p_game);
+  perform log_event(me.id, 'resources_grant', p_game, null, null, p_player, p_amount,
     jsonb_build_object('wallet', w), p_comment);
 end $$;
 
@@ -769,6 +791,7 @@ begin
   end if;
   perform log_event(me.id, 'game_cancel', null, null, null, null, null,
     jsonb_build_object('title', g.title, 'game', p_game), null);
+  delete from battles where game_id = p_game;   -- бои (если игру запускали) — до отрядов
   delete from games where id = p_game;
 end $$;
 
@@ -835,6 +858,7 @@ language plpgsql security definer set search_path = public as $$
 declare me players := auth(p_code); s squads := require_strategist(me, p_squad);
 begin
   perform game_open_for_setup(s.game_id, me.is_admin);
+  perform check_not_in_battle(p_squad);
   delete from squads where id = p_squad;
   perform log_event(me.id, 'squad_delete', s.game_id, null, null, null, null,
     jsonb_build_object('name', s.name), null);
@@ -864,6 +888,7 @@ begin
   update trophies set squad_id = p_b where id = any(coalesce(p_b_trophies,'{}'));
   if coalesce(cardinality(p_b_figures),0) = 0 then
     if coalesce(cardinality(p_b_trophies),0) > 0 then raise exception 'В пустом отряде не может быть трофеев'; end if;
+    perform check_not_in_battle(p_b);
     delete from squads where id = p_b;
   end if;
   perform check_strategist_squads(a.strategist_id);
@@ -1072,14 +1097,19 @@ begin
 end $$;
 
 -- Закрыть бой: победитель (null = ничья), итог (силы, броски) — считает помощник.
+-- Записать итог может атакующий, защищающийся (любой из пары) или ведущий — кто нажмёт первым.
+-- Чёрная луна: такт нападавшего уходит дальше только теперь, когда бой закончен.
 create or replace function api_battle_close(p_code text, p_battle int, p_winner int, p_result jsonb) returns void
 language plpgsql security definer set search_path = public as $$
-declare me players := auth(p_code); b battles;
+declare me players := auth(p_code); b battles; att squads; t record;   -- turns объявлена ниже
 begin
   select * into b from battles where id = p_battle for update;
+  if not found then raise exception 'Бой не найден'; end if;
   if b.status <> 'open' then raise exception 'Бой уже закрыт'; end if;
-  if not me.is_admin then
-    perform require_strategist(me, b.attacker);
+  select * into att from squads where id = b.attacker;
+  if not me.is_admin and strategist_of(me.id, b.game_id) is distinct from att.strategist_id
+     and strategist_of(me.id, b.game_id) is distinct from (select strategist_id from squads where id = b.defender) then
+    raise exception 'Записать итог может атакующий, защищающийся или ведущий';
   end if;
   if p_winner is not null and p_winner not in (b.attacker, b.defender) then raise exception 'Победитель не из боя'; end if;
   update battles set status = 'closed', winner = p_winner, result = p_result where id = p_battle;
@@ -1091,6 +1121,14 @@ begin
   end if;
   perform log_event(me.id, 'battle_close', b.game_id, null, p_winner, null, null,
     coalesce(p_result,'{}') || jsonb_build_object('battle', p_battle, 'winner', p_winner), null);
+  select * into t from turns where game_id = b.game_id order by number desc limit 1;
+  if found and t.phase = 'actions' and has_gift(b.game_id, 'chernaya')
+     and t.current_strategist = att.strategist_id
+     and exists (select 1 from squad_moves where turn_id = t.id and squad_id = b.attacker
+                 and act = 'Нападение' and tact = t.tact)
+     and (open_battle_of(att.strategist_id)).id is null then
+    perform advance_turn(t.id);
+  end if;
 end $$;
 
 -- ───────────────────────── API: трофеи ─────────────────────────
@@ -1559,8 +1597,11 @@ begin
   done := p_kind = 'act';
   perform log_event(p_actor.id, 'squad_move', s.game_id, null, p_squad, null, t.number,
     jsonb_build_object('action', p_value, 'part', p_kind, 'tact', t.tact, 'finished', done), p_comment);
-  -- такт уходит дальше, когда ход отряда текущего стратега закончен
-  if chern and done and t.current_strategist = s.strategist_id then perform advance_turn(t.id); end if;
+  -- такт уходит дальше, когда ход отряда текущего стратега закончен; после Нападения — когда закончится бой
+  -- (api_battle_close)
+  if chern and done and p_value <> 'Нападение' and t.current_strategist = s.strategist_id then
+    perform advance_turn(t.id);
+  end if;
 end $$;
 
 -- Действие отряда из боя и обмена (Нападение, Обмен): ход отряда заканчивается.
@@ -1612,14 +1653,20 @@ begin
          else jsonb_build_object('mode', p_mode, 'echo', e.id, 'name', e.name) end, null);
 end $$;
 
--- Закончить свой ход (обычный режим) или пропустить такт.
+-- Закончить свой ход (обычный режим) или пропустить такт. Пока идёт бой с отрядом ходящего
+-- стратега, ход дальше не уходит (ведущий может переставить указатель «Передать ход…»).
 create or replace function api_pass_turn(p_code text, p_game int) returns void
 language plpgsql security definer set search_path = public as $$
-declare me players := auth(p_code); t turns := current_turn(p_game);
+declare me players := auth(p_code); t turns := current_turn(p_game); b battles;
 begin
   if t.id is null or t.phase <> 'actions' then raise exception 'Сейчас не фаза действий'; end if;
   if not me.is_admin and t.current_strategist is distinct from strategist_of(me.id, p_game) then
     raise exception 'Сейчас не ваш ход';
+  end if;
+  b := open_battle_of(t.current_strategist);
+  if b.id is not null then
+    raise exception 'Идёт бой «%» → «%» — сначала подведите итог боя',
+      (select name from squads where id = b.attacker), (select name from squads where id = b.defender);
   end if;
   perform log_event(me.id, 'turn_pass', p_game, null, null, null, t.number,
     jsonb_build_object('strategist', t.current_strategist, 'tact', t.tact), null);

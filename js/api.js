@@ -1,5 +1,5 @@
 // Связь с базой: чтение таблиц, вызовы api_* с личным кодом, подписки на изменения.
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610161014';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610161643';
 
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -74,14 +74,33 @@ export async function journalPage(before, limit) {
 }
 
 // Подписка на изменения таблиц (Realtime); возвращает функцию отписки.
+// Если канал оборвался (сон вкладки, сеть, таймаут) — переподписка с паузой; после восстановления
+// onChange() вызывается сразу: изменения, пришедшие за время обрыва, иначе потерялись бы.
 export function watch(name, tables, onChange) {
-  let ch = sb.channel(name + ':' + Math.random().toString(36).slice(2));
-  tables.forEach((t) => {
-    const [table, filter] = Array.isArray(t) ? t : [t, undefined];
-    ch = ch.on('postgres_changes', { event: '*', schema: 'public', table, ...(filter ? { filter } : {}) }, onChange);
-  });
-  ch.subscribe();
-  return () => { sb.removeChannel(ch); };
+  let ch = null, stopped = false, retry = null, wasUp = false, delay = 2000;
+  const open = () => {
+    let c = sb.channel(name + ':' + Math.random().toString(36).slice(2));
+    tables.forEach((t) => {
+      const [table, filter] = Array.isArray(t) ? t : [t, undefined];
+      c = c.on('postgres_changes', { event: '*', schema: 'public', table, ...(filter ? { filter } : {}) }, onChange);
+    });
+    ch = c;
+    c.subscribe((status) => {
+      if (stopped || c !== ch) return;
+      if (status === 'SUBSCRIBED') {
+        delay = 2000;
+        if (wasUp) onChange();
+        wasUp = true;
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        ch = null;
+        sb.removeChannel(c);
+        retry = setTimeout(() => { if (!stopped) open(); }, delay);
+        delay = Math.min(delay * 2, 30000);
+      }
+    });
+  };
+  open();
+  return () => { stopped = true; clearTimeout(retry); if (ch) sb.removeChannel(ch); };
 }
 
 // Общие данные (справочники кэшируются, игроки можно обновить отдельно).

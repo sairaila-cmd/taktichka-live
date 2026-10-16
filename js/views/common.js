@@ -1,6 +1,6 @@
 // Общее для разделов: подписи событий журнала, карточка отряда, имена.
-import { cache, session } from '../api.js?v=202610161014';
-import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610161014';
+import { cache, session } from '../api.js?v=202610161643';
+import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610161643';
 
 export const pname = (id) => (cache.playerById && cache.playerById[id] ? cache.playerById[id].name : (id == null ? '—' : '#' + id));
 export const res = (n) => plural(Math.abs(n), 'Ресурс', 'Ресурса', 'Ресурсов');
@@ -103,7 +103,7 @@ export function figLink(f, text) {
   return h('a', { href: '#/figure/' + f.id, onclick: (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    import('./figure-card.js?v=202610161014').then((m) => m.openFigure(f.id));
+    import('./figure-card.js?v=202610161643').then((m) => m.openFigure(f.id));
   } }, text || f.name);
 }
 
@@ -124,7 +124,7 @@ export function squadCard(sq, o, actions) {
   if (o.echo) tags.push(h('span', { class: 'badge warn', title: 'Отряд стоит в Эхо: его правила действуют на этот отряд' }, 'в Эхо «' + o.echo + '»'));
   if (o.moved) tags.push(h('span', { class: 'badge info' }, 'ход: ' + o.moved));
   if (gifts.has('alaya') && sq.rage) tags.push(h('span', { class: 'badge bad', title: 'Алая луна' }, 'Ярость ' + sq.rage));
-  if (gifts.has('belaya') && o.moon && o.moon.white_streak) tags.push(h('span', { class: 'badge moon', title: 'Белая луна: +2 к Силе, +1 действие в событиях' }, '☾ три номинала подряд'));
+  if (gifts.has('belaya') && o.moon && o.moon.white_streak) tags.push(h('span', { class: 'badge moon', title: 'Белая луна: +2 к Силе, +1 действие в событиях. Повреждённая фигура бонус не снимает — только выбывшая из отряда' }, '☾ три номинала подряд'));
   if (gifts.has('belaya') && o.moon && o.moon.duplicate_nominals > 0) tags.push(h('span', { class: 'badge warn', title: 'Белая луна: штраф к Лояльности при попытке переманить' }, 'повторы номиналов: ' + o.moon.duplicate_nominals));
   if (sq.dead_figure) tags.push(h('span', { class: 'badge' }, 'погибла: ' + ((o.figById && o.figById[sq.dead_figure]) ? o.figById[sq.dead_figure].name : '#' + sq.dead_figure)));
   const t = o.totals || { s: 0, l: 0, v: 0 };

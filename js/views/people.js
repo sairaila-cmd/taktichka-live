@@ -1,8 +1,8 @@
 // Персонажи: стратеги выбранной игры (напарники — одной строкой) с Ресурсами, отрядами и фигурами;
 // ниже, свёрнуто, — персонажи, не участвующие в этой игре. Передача Ресурсов, кнопки ведущего.
-import { rowsAll, call, cache, session, isAdmin, loadPlayers } from '../api.js?v=202610161014';
-import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610161014';
-import { res, pname } from './common.js?v=202610161014';
+import { rowsAll, call, cache, session, isAdmin, loadPlayers } from '../api.js?v=202610161643';
+import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610161643';
+import { res, pname } from './common.js?v=202610161643';
 
 export default async function peopleView(root, gameParam) {
   await loadPlayers(true);
@@ -95,18 +95,19 @@ export default async function peopleView(root, gameParam) {
         options: people.filter((p) => !mates.includes(p.id)).map((p) => [p.id, p.name]) },
       { name: 'amount', label: 'Сколько (у вас ' + have + (myStrategist && myStrategist.wallet != null ? ', общий кошелёк пары' : '') + ')', type: 'number', value: 1, min: 1 },
       { name: 'comment', label: 'За что' },
-    ], 'Передать', (v) => act(() => call('api_resources_transfer', { p_to: Number(v.to), p_amount: v.amount, p_comment: v.comment }),
+    ], 'Передать', (v) => act(() => call('api_resources_transfer', { p_to: Number(v.to), p_amount: v.amount, p_comment: v.comment, p_game: game ? game.id : null }),
       'Передано', () => { close(); refresh(); })));
   }
   // Начисление: у пары Ресурсы всё равно уходят в общий кошелёк, поэтому начисляем первому из пары.
+  // Стратегу — в выбранную игру (кошелёк пары именно этой игры); не участвующему — на личный баланс.
   function grant(ids, s) {
     const who = ids.map(pname).join(' и ');
     const now = s ? money(s) : (cache.playerById[ids[0]] || {}).resources;
-    modal('Ресурсы: ' + who, (close) => form([
+    modal('Ресурсы: ' + who + (s ? ' · «' + game.title + '»' : ''), (close) => form([
       { name: 'amount', label: 'Сколько начислить (минус — списать); сейчас ' + res(now), type: 'number', value: 1,
-        hint: s && s.wallet != null ? 'Пара — Ресурсы пойдут в общий кошелёк.' : null },
+        hint: s && s.wallet != null ? 'Пара — Ресурсы пойдут в общий кошелёк этой игры.' : null },
       { name: 'comment', label: 'Основание' },
-    ], 'Сохранить', (v) => act(() => call('api_admin_resources', { p_player: ids[0], p_amount: v.amount, p_comment: v.comment }),
+    ], 'Сохранить', (v) => act(() => call('api_admin_resources', { p_player: ids[0], p_amount: v.amount, p_comment: v.comment, p_game: s ? game.id : null }),
       'Готово', () => { close(); refresh(); })));
   }
   // Доп. отряды — личные (у пары в игре считается больший из двух).

@@ -269,7 +269,7 @@ with sync_playwright() as p:
     page.fill(f"{dlg} input[name=amount]", "2"); page.fill(f"{dlg} input[name=comment]", "за помощь")
     in_dialog(page, "Передать")
     c = wait_call(page, "api_resources_transfer")
-    check("И-20 «Передать Ресурсы» → api_resources_transfer (Самуму 2)", has(c, p_to=5, p_amount=2, p_comment="за помощь"), c)
+    check("И-20 «Передать Ресурсы» → api_resources_transfer (Самуму 2, в выбранной игре 1)", has(c, p_to=5, p_amount=2, p_comment="за помощь", p_game=1), c)
     FAIL["api_resources_transfer"] = "Недостаточно Ресурсов: есть 3"
     page.wait_for_timeout(300)
     page.click("button:has-text('Передать Ресурсы')")
@@ -438,9 +438,15 @@ with sync_playwright() as p:
 
     setup()
     go(page, "zoi-test", "#/game/1", "Пропустить такт")
+    pass_btn = page.locator("button:has-text('Пропустить такт')")
+    check("И-41 пока идёт бой «Волков», «Пропустить такт» серая, ход ждёт итога боя",
+          pass_btn.is_disabled() and "после итога боя" in (pass_btn.get_attribute("title") or "")
+          and "ход перейдёт дальше после итога боя" in page.locator("section.card:has(h2:has-text('Ход'))").first.inner_text())
+    T["battles"][0]["status"] = "closed"
+    go(page, "zoi-test", "#/game/1", "Пропустить такт")
     mark(); page.click("button:has-text('Пропустить такт')")
     c = wait_call(page, "api_pass_turn")
-    check("И-41 Чёрная луна: «Пропустить такт» → api_pass_turn", has(c, p_game=1), c)
+    check("И-41 Чёрная луна: бой окончен — «Пропустить такт» → api_pass_turn", has(c, p_game=1), c)
     T["game_gifts"][:] = [g for g in T["game_gifts"] if g["gift"] != "chernaya"]
     go(page, "zoi-test", "#/game/1", "Закончить ход")
     check("И-41 без Чёрной луны кнопка называется «Закончить ход»", page.locator("button:has-text('Пропустить такт')").count() == 0)
@@ -617,8 +623,13 @@ with sync_playwright() as p:
     T["battle_actions"].append({"id": 6, "battle_id": 1, "kind": "damage", "squad_id": 2, "figure_id": 21, "property": None, "params": {}, "roll": None, "cost": 0})
     T["battle_actions"] += [{"id": 7 + i, "battle_id": 1, "kind": "skip", "squad_id": s, "figure_id": f, "property": None, "params": {"phase": "Ущерб"}, "roll": None, "cost": 0}
                             for i, (s, f) in enumerate([(2, 22), (1, 12)])]
+    go(page, "samum-test", "#/battle/1", "Исход")
+    check("И-58 посторонний игрок итог не записывает", page.locator("button:has-text('Завершить бой')").count() == 0
+          and "Записать итог может атакующий, защищающийся или ведущий" in page.locator("#view").inner_text())
     go(page, "rat-test", "#/battle/1", "Исход")
-    check("И-58 защитник не записывает итог", "Записать итог может нападающий или ведущий" in page.locator("#view").inner_text())
+    mark(); page.click("button:has-text('Завершить бой и записать итог')")
+    c = wait_call(page, "api_battle_close")
+    check("И-58 защищающийся тоже записывает итог → api_battle_close (победили Волки)", has(c, p_battle=1, p_winner=1), c)
     go(page, "zoi-test", "#/battle/1", "Исход")
     mark(); page.click("button:has-text('Завершить бой и записать итог')")
     c = wait_call(page, "api_battle_close")
@@ -638,6 +649,25 @@ with sync_playwright() as p:
     go(page, "zoi-test", "#/battle/1", "Итог боя")
     check("И-59 второй трофей за тот же бой взять нельзя", page.locator("button:has-text('Забрать')").count() == 0
           and "Трофей за этот бой уже забран" in page.locator("#view").inner_text())
+
+    print("\nИзвещение о нападении")
+    setup()
+    go(page, "rat-test", "#/rules", "Свойства")
+    page.wait_for_selector(".alert-attack", timeout=5000)
+    bar = page.locator(".alert-attack").first
+    check("И-62 защищающемуся на любой странице — плашка «На ваш отряд «Совы» напал «Волки»»",
+          "На ваш отряд «Совы» напал «Волки»" in bar.inner_text(), bar.inner_text())
+    bar.locator("a:has-text('Открыть бой')").click()
+    page.wait_for_selector("text=Очередь фигур", timeout=10000)
+    check("И-62 «Открыть бой» ведёт на страницу боя, там плашки нет",
+          page.evaluate("location.hash") == "#/battle/1" and page.locator(".alert-attack").count() == 0)
+    go(page, "zoi-test", "#/rules", "Свойства")
+    page.wait_for_timeout(800)
+    check("И-62 нападающему плашки нет", page.locator(".alert-attack").count() == 0)
+    T["battles"][0]["status"] = "closed"
+    go(page, "rat-test", "#/rules", "Свойства")
+    page.wait_for_timeout(800)
+    check("И-62 бой закончен — плашки нет", page.locator(".alert-attack").count() == 0)
 
     # ═════════════════════ ВЕДУЩИЙ ═════════════════════
     print("\nВедущий: доступ")
@@ -827,7 +857,8 @@ with sync_playwright() as p:
     page.fill(f"{dlg} input[name=amount]", "-2"); page.fill(f"{dlg} input[name=comment]", "штраф")
     in_dialog(page, "Сохранить")
     c = wait_call(page, "api_admin_resources")
-    check("В-30 «± Ресурсы» паре (минус) → api_admin_resources первому из пары", has(c, p_player=3, p_amount=-2, p_comment="штраф"), c)
+    check("В-30 «± Ресурсы» паре (минус) → api_admin_resources первому из пары, в выбранную игру 1",
+          has(c, p_player=3, p_amount=-2, p_comment="штраф", p_game=1), c)
     page.wait_for_timeout(300)
     mark(); page.locator("tr:has-text('Ратбургер и Любомир') button:has-text('Доп. отряды')").click()
     page.select_option(f"{dlg} select[name=p]", "4")
@@ -841,7 +872,7 @@ with sync_playwright() as p:
     page.fill(f"{dlg} input[name=amount]", "5")
     in_dialog(page, "Сохранить")
     c = wait_call(page, "api_admin_resources")
-    check("В-30 «± Ресурсы» не участвующему → api_admin_resources (Самум +5)", has(c, p_player=5, p_amount=5), c)
+    check("В-30 «± Ресурсы» не участвующему → api_admin_resources (Самум +5, на личный баланс)", has(c, p_player=5, p_amount=5, p_game=None), c)
 
     print("\nВедущий: во время игры")
     go(page, "admin-test", "#/game/1", "Ведущему")

@@ -1,7 +1,7 @@
 // Помощник боя: очередь фигур, свойства по фазам, Сила, броски, исход; вживую у обоих игроков.
-import { rows, rowsAll, call, cache, session, isAdmin, watch } from '../api.js?v=202610161014';
-import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610161014';
-import { glyph, pname, figLink } from './common.js?v=202610161014';
+import { rows, rowsAll, call, cache, session, isAdmin, watch } from '../api.js?v=202610161643';
+import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610161643';
+import { glyph, pname, figLink } from './common.js?v=202610161643';
 
 const SIDE_RU = { attacker: 'нападает', defender: 'защищается' };
 const HINTS = {
@@ -15,8 +15,24 @@ const HINTS = {
   'Quid pro quo': 'Замените повреждённую фигуру: Обмен с другим отрядом или ведущий — из Резерва/Боевой Колоды.',
 };
 
+// Расчёт боя (js/battle.js, window.Battle) — обычный скрипт; грузится один раз, когда впервые открыли бой.
+let battleCore = null;
+function loadBattleCore() {
+  if (window.Battle) return Promise.resolve();
+  battleCore = battleCore || new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'js/battle.js?v=202610161643';
+    s.onload = () => resolve();
+    s.onerror = () => { battleCore = null; s.remove(); reject(new Error('Не удалось загрузить расчёт боя — обновите страницу')); };
+    document.head.append(s);
+  });
+  return battleCore;
+}
+loadBattleCore().catch(() => { /* повторим и покажем ошибку при открытии боя */ });
+
 export default async function battleView(root, battleId) {
   battleId = Number(battleId);
+  await loadBattleCore();   // нужен уже в load(): там считается бой
   let d = await load(battleId);
   draw();
   let timer = null;
@@ -26,7 +42,10 @@ export default async function battleView(root, battleId) {
     ['squad_figures', 'squad_id=eq.' + d.battle.attacker], ['squad_figures', 'squad_id=eq.' + d.battle.defender],
     ['squads', 'id=eq.' + d.battle.attacker], ['squads', 'id=eq.' + d.battle.defender], ['trophies'],
   ], schedule) : () => {};
-  return () => { unwatch(); clearTimeout(timer); };
+  // Вернулись на вкладку — перечитать (пока она спала, изменения могли не прийти).
+  const onVisible = () => { if (document.visibilityState === 'visible') schedule(); };
+  document.addEventListener('visibilitychange', onVisible);
+  return () => { unwatch(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); };
 
   async function done() { d = await load(battleId); draw(); }
 
@@ -123,7 +142,7 @@ export default async function battleView(root, battleId) {
       items.push(h('div', { class: 'outcome' }, outcomeText(r.outcome)));
       if (r.outcome && r.outcome.totals) items.push(h('p', { class: 'muted small', style: 'margin:0; text-align:center' },
         'Итог: ' + r.outcome.totals.attacker + ' против ' + r.outcome.totals.defender));
-      if (canAct('attacker') || isAdmin()) {
+      if (canAct('attacker') || canAct('defender')) {
         items.push(h('div', { class: 'row', style: 'justify-content:center' }, btn('Завершить бой и записать итог', () => {
           const w = r.outcome ? r.outcome.winner : null;
           return act(() => call('api_battle_close', { p_battle: battleId, p_winner: w ? d.sq[w].id : null, p_result: {
@@ -132,7 +151,7 @@ export default async function battleView(root, battleId) {
             rolls: { attacker: r.rolls.attacker && r.rolls.attacker.final, defender: r.rolls.defender && r.rolls.defender.final } } }),
           'Бой записан', done);
         }, 'primary')));
-      } else items.push(h('p', { class: 'muted small', style: 'text-align:center; margin:0' }, 'Записать итог может нападающий или ведущий.'));
+      } else items.push(h('p', { class: 'muted small', style: 'text-align:center; margin:0' }, 'Записать итог может атакующий, защищающийся или ведущий.'));
     }
     return h('section', { class: 'card', style: 'border-color: var(--moon)' }, h('h2', {}, n ? 'Сейчас' : 'Исход'), items);
   }

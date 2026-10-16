@@ -68,6 +68,11 @@ def expect_err(name, fn, *args, contains=""):
 def sql(s, *a):
     q.execute(s, a); return q.fetchall()
 
+def expect(name, cond, info=""):
+    global ok, fail
+    if cond: ok += 1; print(f"  ✓ {name}")
+    else: fail += 1; print(f"  ✗ {name}", info)
+
 A, ANYA, BORYA, VERA, GOSHA = "админ-code", "аня-code", "боря-code", "вера-code", "гоша-code"
 
 print("\nДоступ")
@@ -244,6 +249,10 @@ print("    пешка-конь-офицер:", moon.get(tri), "| пешка-ко
 if moon.get(tri) is True and moon.get(pkl) is False: ok += 1; print("  ✓ бонус Белой луны считается верно")
 else: fail += 1; print("  ✗ бонус Белой луны")
 print("    повторы номиналов «Пара»:", sql("select duplicate_nominals from squad_moon where squad_id=%s", para))
+streak = lambda: sql("select white_streak from squad_moon where squad_id=%s", tri)[0][0]
+for st_, want_ in [("damaged", True), ("discard", False), ("reserve", False), ("dump", False), ("ok", True)]:
+    cur.execute("update squad_figures set state=%s where squad_id=%s and figure_id=%s", (st_, tri, fig["Б-конь"]))
+    expect(f"Белая луна: конь из тройки «{st_}» → бонус {'есть' if want_ else 'нет'}", streak() is want_, streak())
 
 expect_ok("старт игры 3", "api_admin_game", A, g3, "Луны", None, "running")
 sid = {n: sql("select strategist_id from squads where id=%s", x)[0][0] for n, x in
@@ -322,12 +331,17 @@ expect_err("Боря нападает не в свой черёд", "api_battle_
 expect_ok("ПКЛ перемещается", "api_squad_move", ANYA, pkl, "Перемещение", None)
 b1 = expect_ok("бой: ПКЛ нападает на Тройку", "api_battle_open", ANYA, pkl, tri)
 print("    ход ПКЛ:", sql("select action, act from squad_moves m join turns t on t.id=m.turn_id where t.number=2 and m.squad_id=%s", pkl))
-expect_ptr("после Нападения такт ушёл к паре", "пара", 1)
+expect_ptr("пока идёт бой, такт остаётся у Ани", "аня", 1)
+expect_err("Аня не может пропустить такт во время боя", "api_pass_turn", ANYA, g3, contains="сначала подведите итог")
+expect_err("…и ведущий тоже (только «Передать ход…»)", "api_pass_turn", A, g3, contains="Идёт бой «ПКЛ» → «Тройка»")
 tr = expect_ok("трофей Тройке", "api_admin_trophy_give", A, tri, "Знамя", "", 1, 0, 0)
 expect_err("выкинуть трофей во время боя", "api_trophy_drop", BORYA, tr, contains="Во время боя")
 expect_err("второй бой с тем же отрядом", "api_battle_open", A, para, pkl, contains="уже в бою")
 expect_err("Ярость без накопленной", "api_rage_spend", ANYA, pkl, "power", b1, None, contains="нет Ярости")
+expect_err("распустить отряд в бою (ведущий)", "api_squad_delete", A, tri, contains="сейчас в бою")
+expect_err("итог боя записывает посторонний стратег", "api_battle_close", GOSHA, b1, pkl, None, contains="атакующий, защищающийся или ведущий")
 expect_ok("победа Ани", "api_battle_close", ANYA, b1, pkl, None)
+expect_ptr("после итога боя такт ушёл к паре", "пара", 1)
 expect_err("ПКЛ нападает второй раз за ход", "api_battle_open", A, pkl, tri, contains="уже закончен")
 print("    ярость ПКЛ/Тройка:", sql("select name, rage from squads where id in (%s,%s) order by id", pkl, tri))
 b2 = expect_ok("бой: Тройка нападает на ПКЛ (ведущий за Борю)", "api_battle_open", A, tri, pkl)
@@ -336,7 +350,8 @@ expect_err("игрок не выставляет Ярость сам", "api_admi
 expect_ok("ведущий даёт Ярость вручную", "api_admin_rage", A, tri, 2, None)
 expect_err("второй раз +5 за бой", "api_rage_spend", BORYA, tri, "power", b2, None, contains="один раз за бой")
 expect_ok("+1 к перемещению за Ярость", "api_rage_spend", BORYA, tri, "move", None, None)
-expect_ok("победа Бори", "api_battle_close", BORYA, b2, tri, None)
+expect_ok("победа Бори — итог записывает защищающаяся Аня", "api_battle_close", ANYA, b2, tri, None)
+expect_ptr("бой не текущего стратега указатель не двигает", "пара", 1)
 r = dict(sql("select id, rage from squads where id in (%s,%s)", pkl, tri))
 if r[tri] == 0 and r[pkl] == 1: ok += 1; print("  ✓ победитель сжёг Ярость, проигравший получил +1")
 else: fail += 1; print("  ✗ Ярость после боя:", r)
@@ -434,11 +449,6 @@ expect_ok("ведущий добавляет пешку в идущей игре
 st = dict(sql("select figure_id, state from squad_figures where squad_id=%s", q4))
 if st.get(fig["Ферзь-1"]) == "damaged" and st.get(fig["Пешка-запас"]) == "ok": ok += 1; print("  ✓ при правке состояние фигур сохранилось")
 else: fail += 1; print("  ✗ состояния:", st)
-
-def expect(name, cond, info=""):
-    global ok, fail
-    if cond: ok += 1; print(f"  ✓ {name}")
-    else: fail += 1; print(f"  ✗ {name}", info)
 
 print("\nУчастие и роспуск отряда")
 g5 = expect_ok("игра 5", "api_admin_game", A, None, "Пятая", None, "draft")
@@ -643,6 +653,56 @@ try:
     q.execute("select drop_source(1, 'x')"); fail += 1; print("  ✗ drop_source доступна из браузера")
 except Exception:
     ok += 1; print("  ✓ drop_source из браузера недоступна")
+
+print("\nУбрать стратега и отменить игру после боёв (игру запускали и вернули в сбор)")
+g7 = expect_ok("игра 7", "api_admin_game", A, None, "Бои и уход", None, "draft")
+qa7 = expect_ok("Аня: отряд", "api_squad_save", ANYA, g7, None, "А7", [fig["У-пешка-А"]])
+qb7 = expect_ok("Боря: отряд", "api_squad_save", BORYA, g7, None, "Б7", [fig["У-пешка-Б"]])
+qv7 = expect_ok("Вера: отряд", "api_squad_save", VERA, g7, None, "В7", [fig["У-пешка-В"]])
+expect_ok("старт игры 7", "api_admin_game", A, g7, "Бои и уход", None, "running")
+b7 = expect_ok("бой А7 → Б7", "api_battle_open", A, qa7, qb7)
+expect_ok("бросок в бою", "api_roll", A, g7, b7, qb7, "risk", 5)
+expect_ok("итог боя", "api_battle_close", A, b7, qb7, None)
+b7b = expect_ok("бой В7 → Б7 (остаётся открытым)", "api_battle_open", A, qv7, qb7)
+expect_ok("бросок во втором бою", "api_roll", A, g7, b7b, qv7, "risk", 6)
+expect_ok("вернуть игру в сбор отрядов", "api_admin_game", A, g7, "Бои и уход", None, "draft")
+expect_ok("ведущий убирает Аню (её отряд бился)", "api_strategist_leave", A, g7, 2)
+expect("бой Ани удалён вместе с отрядом", sql("select count(*) from battles where id=%s", b7)[0][0] == 0
+       and sql("select count(*) from squads where id=%s", qa7)[0][0] == 0)
+expect_err("распустить отряд Веры в открытом бою нельзя", "api_squad_delete", A, qv7, contains="сейчас в бою")
+expect_ok("ведущий отменяет игру с открытым боем и шагами боя", "api_admin_game_cancel", A, g7)
+expect("игра, бои и шаги боёв удалены", sql("select count(*) from games where id=%s", g7)[0][0] == 0
+       and sql("select count(*) from battles where id=%s", b7b)[0][0] == 0
+       and sql("select count(*) from battle_actions where battle_id=%s", b7b)[0][0] == 0)
+
+print("\nРесурсы: две игры в сборе — начисление в выбранную")
+ga = expect_ok("игра А (пара Вера + Гоша)", "api_admin_game", A, None, "Сбор А", None, "draft")
+gb = expect_ok("игра Б (Вера одна)", "api_admin_game", A, None, "Сбор Б", None, "draft")
+expect_ok("Вера в игре А", "api_admin_join", A, ga, 4)
+expect_ok("Вера и Гоша — пара в игре А", "api_admin_pair", A, ga, 4, 5)
+expect_ok("Вера в игре Б", "api_admin_join", A, gb, 4)
+wa = lambda: sql("select wallet from strategists s join strategist_members m on m.strategist_id=s.id where m.game_id=%s and m.player_id=4", ga)[0][0]
+vr = lambda: sql("select resources from players where id=4")[0][0]
+wa0, vr0 = wa(), vr()
+expect_ok("ведущий: Вере +4 в игре Б", "api_admin_resources", A, 4, 4, None, gb)
+expect("ушло на личный баланс Веры, кошелёк пары в игре А не тронут", vr() == vr0 + 4 and wa() == wa0, (vr0, vr(), wa0, wa()))
+expect("в журнале начисление привязано к игре Б",
+       sql("select game_id from events where kind='resources_grant' order by id desc limit 1") == [(gb,)])
+expect_ok("ведущий: Вере +3 в игре А", "api_admin_resources", A, 4, 3, None, ga)
+expect("ушло в общий кошелёк пары игры А", wa() == wa0 + 3 and vr() == vr0 + 4, (wa(), vr()))
+expect_ok("Аня → Вере 1 в игре Б", "api_resources_transfer", ANYA, 4, 1, "за помощь", gb)
+expect("передача в игре Б — на личный баланс Веры", vr() == vr0 + 5 and wa() == wa0 + 3, (wa(), vr()))
+expect_ok("старый вызов без игры тоже работает", "api_admin_resources", A, 2, 1, None)
+
+print("\nМиграция 013 повторно")
+mig = (pathlib.Path(__file__).parent / "migrations" / "013_battles_turns.sql").read_text(encoding="utf-8")
+try:
+    cur.execute(mig); res = cur.fetchone()
+    expect("миграция 013 выполняется повторно, проверочная строка",
+           res == ("realtime 9 из 9; ключи боёв 4 из 4; функции 2 из 2",), res)
+except Exception as e:
+    expect("миграция 013 выполняется", False, str(e).splitlines()[0])
+expect_ok("после миграции начисление с игрой работает", "api_admin_resources", A, 4, 1, None, gb)
 
 print("\nПостраничное чтение журнала")
 cur.execute("""insert into events (at, kind, data) values

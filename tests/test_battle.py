@@ -138,6 +138,24 @@ ed = next(e for e in r["entries"] if e["key"] == "81:Условие")
 check("в Святилище: Плен у отряда внутри недоступен", ea["status"] == "unavailable" and "Святилище" in ea["reason"], ea.get("reason"))
 check("снаружи: Плен у противника доступен", ed["status"] in ("current", "waiting") or any(o["available"] for o in ed.get("options") or []), ed)
 
+print("\nБелая луна: три номинала подряд — +2 к Силе")
+def moon_fight(gifts, actions=(), streak=True):
+    A5 = {"squad_id": 1, "name": "Тройка", "white_streak": streak, "figures": [
+        fig(101, "Пешка", "пешка", 1, 1, "Мобильность"), fig(102, "Конь", "конь", 2, 1, "Мобильность", st="damaged"),
+        fig(103, "Офицер", "офицер", 3, 1, "Мобильность")]}
+    D5 = {"squad_id": 2, "name": "Пленители", "figures": [fig(111, "Ладья", "ладья", 4, 9, "Плен")]}
+    return compute({"attacker": A5, "defender": D5, "actions": list(actions), "gifts": list(gifts), "echoBlocked": []})
+moon = lambda r: [p for p in r["strength"]["attacker"]["parts"] if "Белая луна" in p["label"]]
+plen = [act("property", 2, 111, "Плен", params={"phase": "Условие", "target": 102})]
+r = moon_fight(["belaya"], plen)
+check("с даром: +2 к Силе (повреждённый конь бонус не снимает)", [p["value"] for p in moon(r)] == [2], r["strength"]["attacker"])
+check("Плен коня из тройки бонус не снимает: 1+3 и +2 = 6", r["strength"]["attacker"]["total"] == 6, r["strength"]["attacker"])
+r = moon_fight([], plen)
+check("без дара Белой луны бонуса нет", moon(r) == [] and r["strength"]["attacker"]["total"] == 4, r["strength"]["attacker"])
+r = moon_fight(["belaya"], plen, streak=False)
+check("тройка распалась (фигура выбыла) — бонуса нет", moon(r) == [], r["strength"]["attacker"])
+check("бонус не достаётся отряду без тройки", not [p for p in r["strength"]["defender"]["parts"] if "Белая луна" in p["label"]])
+
 print("\nОчередь: номинал → Лояльность → атакующий")
 A3 = {"squad_id": 1, "name": "А", "figures": [fig(51, "пешка А", "пешка", 1, 5, "Штурм"), fig(52, "конь А", "конь", 1, 1, "Штурм")]}
 D3 = {"squad_id": 2, "name": "Д", "figures": [fig(61, "пешка Д", "пешка", 1, 5, "Укрепление"), fig(62, "пешка Д2", "пешка", 1, 9, "Укрепление")]}

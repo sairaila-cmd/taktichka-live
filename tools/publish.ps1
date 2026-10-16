@@ -23,8 +23,12 @@ if (-not (Test-Path (Join-Path $site ".git"))) {
 git -C $site config user.name "sairaila-cmd"
 git -C $site config user.email "342123712+sairaila-cmd@users.noreply.github.com"
 
+# Только существующие пути (папку без файлов git не знает) + удаления уже опубликованных файлов.
+$paths = $paths | Where-Object { Test-Path (Join-Path $site $_) }
 git -C $site add -- $paths
 if ($LASTEXITCODE) { throw "git add не удался" }
+git -C $site add -u
+if ($LASTEXITCODE) { throw "git add -u не удался" }
 
 # Страховка: личные коды и закрытые ключи не должны попасть в репозиторий.
 $staged = git -C $site diff --cached --name-only

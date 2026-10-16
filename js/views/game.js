@@ -1,8 +1,9 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161014';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161014';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161014';
-import { statsCard } from './stats.js?v=202610161014';
+import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161643';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161643';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161643';
+import { statsCard } from './stats.js?v=202610161643';
+import { notifyButton } from '../alerts.js?v=202610161643';
 
 
 export default async function gameView(root, gameId) {
@@ -24,7 +25,18 @@ export default async function gameView(root, gameId) {
   const f = 'game_id=eq.' + gameId;
   const unwatch = watch('game' + gameId, [['squads', f], ['squad_figures', f], ['strategists', f], ['turns', f],
     'squad_moves', ['battles', f], ['game_gifts', f], 'players'], schedule);
-  return () => { unwatch(); clearTimeout(timer); dlg.removeEventListener('close', onClose); };
+  // Страховка, если Realtime молчит: перечитать при возврате на вкладку и раз в 20 с, пока игра идёт
+  // (не во время ввода — перерисовка стёрла бы набранное).
+  const onVisible = () => { if (document.visibilityState === 'visible') schedule(); };
+  document.addEventListener('visibilitychange', onVisible);
+  const poll = setInterval(() => {
+    const typing = document.activeElement && box.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (document.visibilityState === 'visible' && !typing && data.game && data.game.status === 'running') schedule();
+  }, 20000);
+  return () => {
+    unwatch(); clearTimeout(timer); clearInterval(poll);
+    dlg.removeEventListener('close', onClose); document.removeEventListener('visibilitychange', onVisible);
+  };
 
   async function reload() {
     try { data = await load(gameId); draw(); } catch (e) { toast(e.message, true); }
@@ -66,10 +78,15 @@ export default async function gameView(root, gameId) {
     const t = d.turn;
     const me = d.myStrategist;
     const actions = [];
+    // Идущий бой с отрядом ходящего стратега: ход не уходит дальше, пока не записан итог.
+    const holding = t && t.phase === 'actions' && t.current_strategist ? d.openBattles.find((b) =>
+      [b.attacker, b.defender].some((id) => d.squadById[id] && d.squadById[id].strategist_id === t.current_strategist)) : null;
     if (t && t.phase === 'intrigues' && (me || isAdmin())) actions.push(btn('Активировать интригу', () => intrigue(d), 'primary'));
     if (t && t.phase === 'actions' && me && t.current_strategist === me.id) {
-      actions.push(btn(d.gifts.has('chernaya') ? 'Пропустить такт' : 'Закончить ход', () =>
-        act(() => call('api_pass_turn', { p_game: gameId }), 'Ход передан', done)));
+      const pass = btn(d.gifts.has('chernaya') ? 'Пропустить такт' : 'Закончить ход', () =>
+        act(() => call('api_pass_turn', { p_game: gameId }), 'Ход передан', done));
+      if (holding) { pass.disabled = true; pass.title = 'Идёт бой — ход перейдёт дальше после итога боя'; }
+      actions.push(pass);
     }
     if (isAdmin() && d.game.status === 'running') {
       actions.push(btn('Новый ход', () => newTurn(d)));
@@ -84,6 +101,9 @@ export default async function gameView(root, gameId) {
       h('div', { class: 'row small' }, badge(phaseText, t && t.phase === 'actions' ? 'ok' : 'moon'),
         t && d.gifts.has('chernaya') ? badge('такт ' + t.tact + ' из ' + t.tacts, 'info') : null,
         t && t.current_strategist ? h('span', {}, 'Сейчас ходит: ', h('b', {}, d.label(t.current_strategist))) : null),
+      holding ? h('div', { class: 'row small' }, badge('идёт бой', 'warn'),
+        h('a', { href: '#/battle/' + holding.id }, '«' + d.squadName(holding.attacker) + '» → «' + d.squadName(holding.defender) + '»'),
+        h('span', { class: 'muted' }, '— ход перейдёт дальше после итога боя')) : null,
       orderList(d, t),
       h('div', { class: 'frame-legend small' }, h('span', { class: 'fl active' }, 'может действовать'), h('span', { class: 'fl waiting' }, 'ждёт череда'), h('span', { class: 'fl done' }, 'уже ходил в этом ходу'),
         h('span', { class: 'fl destroyed' }, 'уничтожен')),
@@ -128,6 +148,7 @@ export default async function gameView(root, gameId) {
       else actions.push(btn('Пригласить напарника', () => invite(d)));
     }
     invites.forEach((s) => { if (g.status === 'draft' && members.length === 1) actions.push(btn('Принять приглашение: ' + d.label(s.id), () => accept(d, s))); });
+    if (g.status === 'running' && !session.me.is_admin) actions.push(notifyButton());
     return h('section', { class: 'card' },
       h('header', {}, h('h2', {}, 'Моё участие: ' + d.label(me.id)), h('div', { class: 'row' }, actions)),
       h('div', { class: 'row small' },
@@ -262,7 +283,7 @@ export default async function gameView(root, gameId) {
     statusBtns.push(btn('Название и время', () => renameGame(d)));
     const pairs = d.strategists.filter((s) => s.wallet != null && s.wallet > 0);
     const activeTrophies = d.trophies.filter((t) => t.status === 'active');
-    return h('section', { class: 'card', style: 'border-color: rgba(231,224,124,.5)' },
+    return h('section', { class: 'card', style: 'border-color: var(--line-strong)' },
       h('h2', {}, 'Ведущему'),
       h('div', { class: 'row' }, statusBtns),
       h('div', { class: 'stack small' }, h('b', {}, 'Дары лун'), h('div', { class: 'row' }, giftBoxes)),
@@ -719,6 +740,7 @@ async function load(gameId) {
     figures, figById, ownersOf, conflicts, kept, trophies: trophies.filter((t) => t.status === 'active'), squadById,
     order, shifted, membersOf, label,
     echoById: Object.fromEntries(echoes.map((e) => [e.id, e])),
+    openBattles: battles.filter((b) => b.status === 'open'),
     inBattle: new Set(battles.filter((b) => b.status === 'open').flatMap((b) => [b.attacker, b.defender])),
     // ход отряда в текущем ходу: { text, moved, finished }
     turnOf: Object.fromEntries(moves.map((m) => [m.squad_id, { text: m.action + (giftSet.has('chernaya') ? ' (такт ' + m.tact + ')' : ''),

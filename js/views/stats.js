@@ -1,16 +1,16 @@
 // Статистика игры: плитки, состояния фигур и графики (как в дашборде «Фигуры тактички»),
-// по фигурам в отрядах этой игры. Графики — простое SVG, цвета дашборда: Сила — луна,
-// Лояльность — камень, Влияние — лунный свет.
-import { cache } from '../api.js?v=202610161014';
-import { h, NOM_GLYPH, STATE_RU, plural } from '../ui.js?v=202610161014';
+// по фигурам в отрядах этой игры. Графики — простое SVG в оттенках серого (подложка сайта
+// чёрно-белая): Сила — белый, Влияние — светло-серый, Лояльность — серый.
+import { cache } from '../api.js?v=202610161643';
+import { h, NOM_GLYPH, STATE_RU, plural } from '../ui.js?v=202610161643';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
-const P = [['s', 'Сила', '#e7e07c'], ['l', 'Лояльность', '#9a9a96'], ['v', 'Влияние', '#f6f2de']];
+const P = [['s', 'Сила', '#ffffff'], ['l', 'Лояльность', '#7a7a7a'], ['v', 'Влияние', '#bdbdbd']];
 // Состояния: порядок и цвет (состояние всегда подписано словом — цвет не единственный признак).
 const STATES = [
-  ['ok', 'цела', 'var(--ok)'], ['damaged', 'повреждена', 'var(--warn)'], ['discard', 'в отбое', '#9a9a96'],
-  ['reserve', 'в резерве', '#6f7080'], ['dump', 'на свалке', '#4a4c5a'], ['dead', 'погибла', 'var(--bad)'],
-  ['left', 'выбыла из отряда', '#b7b4a0'],
+  ['ok', 'цела', 'var(--ok)'], ['damaged', 'повреждена', 'var(--warn)'], ['discard', 'в отбое', '#9a9a9a'],
+  ['reserve', 'в резерве', '#707070'], ['dump', 'на свалке', '#4a4a4a'], ['dead', 'погибла', 'var(--bad)'],
+  ['left', 'выбыла из отряда', '#b5b5b5'],
 ];
 
 function svg(tag, attrs = {}, ...kids) {
@@ -62,7 +62,7 @@ function hbars(rows, unit) {
         acc += v;
       });
     } else {
-      g.append(svg('rect', { x: lw, y: 2, width: Math.max(2, scale(r.value)), height: bh - 4, rx: 4, fill: r.color || '#e7e07c' }));
+      g.append(svg('rect', { x: lw, y: 2, width: Math.max(2, scale(r.value)), height: bh - 4, rx: 4, fill: r.color || '#ffffff' }));
     }
     g.append(svg('text', { x: lw + scale(r.value) + 6, y: bh / 2, dy: '0.35em' }, r.value));
     const hit = svg('rect', { x: 0, y: 0, width: W, height: bh, fill: 'transparent' });
