@@ -597,5 +597,11 @@ on conflict (name) do nothing;
 update players set characters = characters || array['Александр Смит']
 where name = 'Сэр Малеагант' and not ('Александр Смит' = any(characters));
 
+-- миграция 012: основное имя — Александр Смит (Сэр Малеагант — второе)
+update players set name = 'Александр Смит',
+  characters = array['Александр Смит', 'Сэр Малеагант'] || array(select c from unnest(characters) c where c not in ('Александр Смит', 'Сэр Малеагант'))
+where name = 'Сэр Малеагант';
+update figures set owner_label = replace(owner_label, 'Сэр Малеагант', 'Александр Смит') where owner_label like '%Сэр Малеагант%';
+
 insert into events (kind, data, comment) values ('import', jsonb_build_object('figures', 175, 'players', 25), 'Перенос из дашборда «Фигуры тактички»');
 commit;
