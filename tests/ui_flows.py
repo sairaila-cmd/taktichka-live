@@ -376,9 +376,28 @@ with sync_playwright() as p:
     in_dialog(page, "Взять")
     c = wait_call(page, "api_trophy_equip")
     check("И-37 «Взять» → api_trophy_equip (Рог в «Ветер»)", has(c, p_trophy=2, p_squad=5), c)
+
+    page.wait_for_timeout(300)
+    row = lambda who: page.locator(f".row:has(h3:text-is('{who}'))")
+    check("И-38 «Выйти из игры» — только у своего имени, «Убрать» игроку не видно",
+          row("Самум").locator("button:has-text('Выйти из игры')").count() == 1
+          and row("Любомир").locator("button:has-text('Выйти из игры')").count() == 0
+          and page.locator("button:text-is('Убрать')").count() == 0)
+    mark(); row("Самум").locator("button:has-text('Выйти из игры')").click()
+    page.wait_for_selector(f"{dlg} >> text=Выйти из игры «Сбор у старой мельницы»?")
+    check("И-38 в подтверждении сказано, что отряды распустятся", "Отряды (1) будут распущены" in dialog_text(page), dialog_text(page))
+    in_dialog(page, "Отмена")
+    page.wait_for_timeout(300)
+    check("И-38 «Отмена» ничего не отправляет", not any(f == "api_strategist_leave" for f, _ in calls[mark.at:]))
+    row("Самум").locator("button:has-text('Выйти из игры')").click()
+    in_dialog(page, "Да")
+    c = wait_call(page, "api_strategist_leave")
+    check("И-38 «Выйти из игры» → «Да» → api_strategist_leave (Самум, игра 2)", has(c, p_game=2, p_player=5), c)
+
     T["games"][1]["status"] = "running"
     go(page, "samum-test", "#/game/2", "Моё участие")
     check("И-37 после начала игры игрок трофей из запаса не берёт", page.locator("button:has-text('→ в отряд')").count() == 0)
+    check("И-38 после начала игры выйти нельзя", page.locator("button:has-text('Выйти из игры')").count() == 0)
     shot(page, "flows-draft")
 
     print("\nКэш справочников и обновление игроков")
@@ -657,6 +676,21 @@ with sync_playwright() as p:
     page.locator("label.inline:has(input[aria-label='Инициатива Самум']) button").click()
     c = wait_call(page, "api_admin_initiative")
     check("В-12 инициатива → api_admin_initiative (Самум 7)", has(c, p_strategist=3, p_value=7), c)
+    ini = "input[aria-label='Инициатива Самум']"
+    saved = lambda: "saved" in (page.get_attribute(ini, "class") or "")
+    check("В-12 пока база не подтвердила — поле не зелёное", not saved())
+    st3 = next(s for s in T["strategists"] if s["id"] == 3)
+    st3["initiative"] = 7
+    go(page, "admin-test", "#/game/2", "Ведущему")
+    check("В-12 сохранённая инициатива — поле зелёное", saved())
+    page.fill(ini, "8")
+    check("В-12 число изменено, «✓» не нажата — подсветки нет", not saved())
+    page.fill(ini, "7")
+    check("В-12 вернули сохранённое число — снова зелёное", saved())
+    check("В-12 у стратега без инициативы поле не зелёное",
+          "saved" not in (page.get_attribute("input[aria-label='Инициатива Любомир']", "class") or ""))
+    st3["initiative"] = None
+    go(page, "admin-test", "#/game/2", "Ведущему")
 
     page.wait_for_timeout(300)
     mark(); page.click("button:has-text('Добавить стратега')")
@@ -693,6 +727,45 @@ with sync_playwright() as p:
     in_dialog(page, "Да")
     c = wait_call(page, "api_admin_game")
     check("В-16 «Начать игру» → подтверждение → api_admin_game (running)", has(c, p_id=2, p_status="running", p_title="Сбор у старой мельницы"), c)
+
+    page.wait_for_timeout(300)
+    arow = lambda who: page.locator(f".row:has(h3:has-text('{who}'))")
+    check("В-19 «Убрать» у каждого стратега на подготовке",
+          arow("Самум").locator("button:text-is('Убрать')").count() == 1 and arow("Любомир").locator("button:text-is('Убрать')").count() == 1)
+    mark(); arow("Самум").locator("button:text-is('Убрать')").click()
+    page.wait_for_selector(f"{dlg} >> text=Убрать Самум из игры?")
+    in_dialog(page, "Да")
+    c = wait_call(page, "api_strategist_leave")
+    check("В-19 «Убрать» одиночку → подтверждение → api_strategist_leave (Самум)", has(c, p_game=2, p_player=5), c)
+    T["strategist_members"].append({"strategist_id": 4, "game_id": 2, "player_id": 2})
+    st4 = next(s for s in T["strategists"] if s["id"] == 4)
+    st4.update(wallet=3, invited=None)
+    go(page, "admin-test", "#/game/2", "Ведущему")
+    mark(); arow("Любомир").locator("button:text-is('Убрать')").click()
+    page.wait_for_selector(f"{dlg} button:has-text('Убрать Зои')")
+    check("В-19 у пары — выбор, кого убрать", page.locator(f"{dlg} button:has-text('Убрать Любомир')").count() == 1)
+    in_dialog(page, "Убрать Зои")
+    page.wait_for_selector(f"{dlg} >> text=Убрать Зои из игры?")
+    check("В-19 в подтверждении: напарник остаётся, кошелёк пополам", "Любомир останется один" in dialog_text(page)
+          and "разделится пополам" in dialog_text(page), dialog_text(page))
+    in_dialog(page, "Да")
+    c = wait_call(page, "api_strategist_leave")
+    check("В-19 из пары убрана Зои → api_strategist_leave (p_player=2)", has(c, p_game=2, p_player=2), c)
+    T["strategist_members"].pop(); st4.update(wallet=None, invited=2)
+
+    go(page, "admin-test", "#/game/2", "Ведущему")
+    mark(); page.click("button:has-text('Отменить игру')")
+    page.wait_for_selector(f"{dlg} >> text=Отменить игру «Сбор у старой мельницы»?")
+    in_dialog(page, "Да")
+    c = wait_call(page, "api_admin_game_cancel")
+    check("В-18 «Отменить игру» → подтверждение → api_admin_game_cancel (игра 2)", has(c, p_game=2), c)
+    page.wait_for_function("() => location.hash === '#/games'", timeout=5000)
+    check("В-18 после отмены — список игр", page.evaluate("location.hash") == "#/games")
+    T["games"][1]["status"] = "running"
+    go(page, "admin-test", "#/game/2", "Ведущему")
+    check("В-18/В-19 в идущей игре нет «Отменить игру» и «Убрать»",
+          page.locator("button:has-text('Отменить игру')").count() == 0 and page.locator("button:text-is('Убрать')").count() == 0)
+    T["games"][1]["status"] = "draft"
 
     print("\nВедущий: Эхо")
     go(page, "admin-test", "#/game/1", "Ведущему")

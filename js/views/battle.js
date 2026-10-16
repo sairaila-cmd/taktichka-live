@@ -1,7 +1,7 @@
 // Помощник боя: очередь фигур, свойства по фазам, Сила, броски, исход; вживую у обоих игроков.
-import { rows, rowsAll, call, cache, session, isAdmin, watch } from '../api.js?v=202610160048';
-import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610160048';
-import { glyph, pname, figLink } from './common.js?v=202610160048';
+import { rows, rowsAll, call, cache, session, isAdmin, watch } from '../api.js?v=202610161008';
+import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610161008';
+import { glyph, pname, figLink } from './common.js?v=202610161008';
 
 const SIDE_RU = { attacker: 'нападает', defender: 'защищается' };
 const HINTS = {

@@ -578,6 +578,72 @@ try:
 except Exception:
     ok += 1; print("  ✓ add_source из браузера недоступна")
 
+print("\nВыход из игры и отмена игры на подготовке")
+g6 = expect_ok("игра 6", "api_admin_game", A, None, "Уходы", None, "draft")
+add(ANYA, "У-пешка-А", "пешка", 1, 1, 1, ["Мобильность"])
+add(BORYA, "У-пешка-Б", "пешка", 1, 1, 1, ["Мобильность"])
+add(VERA, "У-пешка-В", "пешка", 1, 1, 1, ["Мобильность"])
+add(GOSHA, "У-пешка-Г", "пешка", 1, 1, 1, ["Мобильность"])
+qa6 = expect_ok("Аня: отряд в игре 6", "api_squad_save", ANYA, g6, None, "Уходящие", [fig["У-пешка-А"]])
+qb6 = expect_ok("Боря: отряд в игре 6", "api_squad_save", BORYA, g6, None, "Остающиеся", [fig["У-пешка-Б"]])
+cur.execute("insert into trophies (name, squad_id, holder, status) values ('Кубок ухода', %s, 2, 'active') returning id", (qa6,))
+tr6 = cur.fetchone()[0]
+expect("название игры в «Источниках» фигуры", "Уходы" in src("У-пешка-А"), src("У-пешка-А"))
+expect_err("Боря убирает Аню", "api_strategist_leave", BORYA, g6, 2, contains="только ведущий")
+expect_ok("Аня выходит сама (p_player = null)", "api_strategist_leave", ANYA, g6, None)
+expect("стратег и отряд Ани удалены, Борин на месте",
+       sql("select count(*) from strategist_members where game_id=%s and player_id=2", g6)[0][0] == 0
+       and sql("select count(*) from squads where id=%s", qa6)[0][0] == 0 and sql("select count(*) from squads where id=%s", qb6)[0][0] == 1)
+expect("трофей Ани вернулся в запас", sql("select status, squad_id from trophies where id=%s", tr6) == [("kept", None)],
+       sql("select status, squad_id from trophies where id=%s", tr6))
+expect("название игры снято из «Источников» ушедшей фигуры", "Уходы" not in src("У-пешка-А") and "Уходы" in src("У-пешка-Б"), src("У-пешка-А"))
+expect("в журнале — выход", sql("select count(*) from events where kind='leave_game' and game_id=%s and player_id=2 and actor=2", g6)[0][0] == 1)
+expect_err("повторный выход", "api_strategist_leave", ANYA, g6, None, contains="не участвует")
+
+cur.execute("update players set resources = 3 where id = 4; update players set resources = 4 where id = 5")
+qp6 = expect_ok("Вера: отряд", "api_squad_save", VERA, g6, None, "Пара-общий", [fig["У-пешка-В"]])
+expect_ok("ведущий: Вера и Гоша — напарники", "api_admin_pair", A, g6, 4, 5)
+expect_ok("Гоша добавляет фигуру в общий отряд", "api_squad_save", GOSHA, g6, qp6, "Пара-общий", [fig["У-пешка-В"], fig["У-пешка-Г"]])
+qg6 = expect_ok("Гоша: отряд только из своей фигуры", "api_squad_save", GOSHA, g6, None, "Гошин", [fig["Ладья-Г1"]])
+sp = sql("select strategist_id from strategist_members where game_id=%s and player_id=4", g6)[0][0]
+w = sql("select wallet from strategists where id=%s", sp)[0][0]
+expect("общий кошелёк пары = 7", w == 7, w)
+expect_ok("ведущий убирает Гошу из пары", "api_strategist_leave", A, g6, 5)
+expect("Вера одна: стратег тот же, кошелька нет",
+       sql("select player_id from strategist_members where strategist_id=%s", sp) == [(4,)]
+       and sql("select wallet, invited from strategists where id=%s", sp) == [(None, None)])
+expect("кошелёк 7 поделён: Гоше 3, Вере 4", sql("select resources from players where id=5")[0][0] == 3
+       and sql("select resources from players where id=4")[0][0] == 4, sql("select id, resources from players where id in (4,5)"))
+expect("фигура Гоши снята из общего отряда, Верина осталась",
+       sorted(r[0] for r in sql("select figure_id from squad_figures where squad_id=%s", qp6)) == [fig["У-пешка-В"]])
+expect("опустевший отряд Гоши распущен", sql("select count(*) from squads where id=%s", qg6)[0][0] == 0)
+expect("в журнале — «убран ведущим» с напарником",
+       sql("select amount, data->>'partner', comment from events where kind='leave_game' and player_id=5 and game_id=%s", g6) == [(3, "4", "убрал ведущий")])
+
+expect_err("игрок отменяет игру", "api_admin_game_cancel", ANYA, g6, contains="ведущего")
+expect_err("отменить идущую игру", "api_admin_game_cancel", A, g4, contains="только игру на подготовке")
+expect_err("выйти из идущей игры", "api_strategist_leave", ANYA, g4, None, contains="началась")
+expect_ok("Аня снова участвует в игре 6", "api_join_game", ANYA, g6)
+expect_ok("ведущий: Аня и Боря — напарники", "api_admin_pair", A, g6, 2, 3)
+sab = sql("select strategist_id from strategist_members where game_id=%s and player_id=2", g6)[0][0]
+cur.execute("update strategists set wallet = 5 where id = %s", (sab,))
+cur.execute("update trophies set status='active', squad_id=%s where id=%s", (qb6, tr6))
+r_anya, r_bor = (sql("select resources from players where id=%s", i)[0][0] for i in (2, 3))
+expect_ok("ведущий отменяет игру 6", "api_admin_game_cancel", A, g6)
+expect("игра удалена вместе со стратегами и отрядами", sql("select count(*) from games where id=%s", g6)[0][0] == 0
+       and sql("select count(*) from squads where id in (%s, %s)", qb6, qp6)[0][0] == 0)
+expect("кошелёк 5 поделён: Ане 3, Боре 2", sql("select resources from players where id=2")[0][0] == r_anya + 3
+       and sql("select resources from players where id=3")[0][0] == r_bor + 2)
+expect("трофей в запасе", sql("select status, squad_id from trophies where id=%s", tr6) == [("kept", None)])
+expect("название отменённой игры снято из «Источников»", "Уходы" not in src("У-пешка-Б") and "Уходы" not in src("У-пешка-В"), src("У-пешка-Б"))
+expect("в журнале — отмена (без ссылки на удалённую игру)",
+       sql("select game_id, data->>'title' from events where kind='game_cancel'") == [(None, "Уходы")])
+expect_err("отменить уже удалённую", "api_admin_game_cancel", A, g6, contains="не найдена")
+try:
+    q.execute("select drop_source(1, 'x')"); fail += 1; print("  ✗ drop_source доступна из браузера")
+except Exception:
+    ok += 1; print("  ✓ drop_source из браузера недоступна")
+
 print("\nПостраничное чтение журнала")
 cur.execute("""insert into events (at, kind, data) values
   ('2099-01-01 00:00:00+00', 'journal_page_test', '{}'),

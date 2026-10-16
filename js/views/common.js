@@ -1,6 +1,6 @@
 // Общее для разделов: подписи событий журнала, карточка отряда, имена.
-import { cache, session } from '../api.js?v=202610160048';
-import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610160048';
+import { cache, session } from '../api.js?v=202610161008';
+import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610161008';
 
 export const pname = (id) => (cache.playerById && cache.playerById[id] ? cache.playerById[id].name : (id == null ? '—' : '#' + id));
 export const res = (n) => plural(Math.abs(n), 'Ресурс', 'Ресурса', 'Ресурсов');
@@ -32,6 +32,9 @@ export function describe(ev, maps = {}) {
     case 'game_running': return 'Игра «' + (d.title || '') + '» началась';
     case 'game_closed': return 'Игра «' + (d.title || '') + '» закончена';
     case 'join_game': return pname(ev.player_id) + ' участвует в игре';
+    case 'leave_game': return pname(ev.player_id) + (ev.actor !== ev.player_id ? ' убран из игры' : ' выходит из игры') +
+      (d.partner ? ' (напарник ' + pname(d.partner) + ' остаётся; ушедшему ' + res(ev.amount || 0) + ' из общего кошелька)' : '');
+    case 'game_cancel': return 'Игра «' + (d.title || '') + '» отменена';
     case 'partner_invite': return 'Приглашение в напарники: ' + pname(ev.player_id);
     case 'pair': return (ev.actor ? 'Напарники: ' : 'В общий кошелёк перенесено (починка): ') + (d.players || []).map(pname).join(' и ') + ' — ' + res(ev.amount);
     case 'wallet_split': return 'Раздел общего кошелька: ' + Object.entries(d).map(([p, n]) => pname(Number(p)) + ' ' + n).join(', ');
@@ -100,7 +103,7 @@ export function figLink(f, text) {
   return h('a', { href: '#/figure/' + f.id, onclick: (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    import('./figure-card.js?v=202610160048').then((m) => m.openFigure(f.id));
+    import('./figure-card.js?v=202610161008').then((m) => m.openFigure(f.id));
   } }, text || f.name);
 }
 

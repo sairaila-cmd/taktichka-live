@@ -1,8 +1,8 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610160048';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610160048';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610160048';
-import { statsCard } from './stats.js?v=202610160048';
+import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161008';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161008';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161008';
+import { statsCard } from './stats.js?v=202610161008';
 
 
 export default async function gameView(root, gameId) {
@@ -151,7 +151,9 @@ export default async function gameView(root, gameId) {
           s.initiative != null ? badge('инициатива ' + s.initiative, 'info') : null,
           d.shifted.has(s.id) ? badge('после первой тройки (3+ отряда)', 'warn') : null,
           badge('Ресурсы ' + d.money(s.id) + (s.wallet != null ? ' (общие)' : '')),
-          isAdmin() && d.game.status !== 'closed' ? btn('+ Отряд', () => buildSquad(d, null, s.id), 'small') : null),
+          isAdmin() && d.game.status !== 'closed' ? btn('+ Отряд', () => buildSquad(d, null, s.id), 'small') : null,
+          d.game.status === 'draft' && isAdmin() ? btn('Убрать', () => removeStrategist(d, s), 'small danger') :
+            d.game.status === 'draft' && d.myStrategist && d.myStrategist.id === s.id ? btn('Выйти из игры', () => leave(d, s), 'small danger') : null),
         h('div', { class: 'squads' }, d.squadsOf(s.id).length ? d.squadsOf(s.id).map((sq) => squadView(d, sq, s)) : h('p', { class: 'empty' }, 'Отрядов нет.')))));
   }
 
@@ -254,7 +256,7 @@ export default async function gameView(root, gameId) {
       h('input', { type: 'checkbox', checked: d.gifts.has(k), onchange: (e) => act(() => call('api_admin_gift', { p_game: gameId, p_gift: k, p_on: e.target.checked }),
         e.target.checked ? 'Дар включён' : 'Дар выключен', done).then((r) => { if (r === undefined) e.target.checked = !e.target.checked; }) }), t));
     const statusBtns = [];
-    if (g.status === 'draft') statusBtns.push(btn('Начать игру', () => setStatus(d, 'running'), 'primary'));
+    if (g.status === 'draft') statusBtns.push(btn('Начать игру', () => setStatus(d, 'running'), 'primary'), btn('Отменить игру', () => cancelGame(d), 'danger'));
     if (g.status === 'running') statusBtns.push(btn('Закончить игру', () => setStatus(d, 'closed'), 'danger'), btn('Вернуть в сбор отрядов', () => setStatus(d, 'draft')));
     if (g.status === 'closed') statusBtns.push(btn('Открыть снова', () => setStatus(d, 'running')));
     statusBtns.push(btn('Название и время', () => renameGame(d)));
@@ -266,7 +268,10 @@ export default async function gameView(root, gameId) {
       h('div', { class: 'stack small' }, h('b', {}, 'Дары лун'), h('div', { class: 'row' }, giftBoxes)),
       h('div', { class: 'stack small' }, h('b', {}, 'Инициатива'),
         h('div', { class: 'row' }, d.strategists.map((s) => {
-          const inp = h('input', { type: 'number', value: s.initiative ?? '', 'aria-label': 'Инициатива ' + d.label(s.id) });
+          // Зелёная рамка — число в поле совпадает с сохранённым в базе (подтверждено «✓»).
+          const mark = () => inp.classList.toggle('saved', s.initiative != null && inp.value !== '' && Number(inp.value) === s.initiative);
+          const inp = h('input', { type: 'number', value: s.initiative ?? '', 'aria-label': 'Инициатива ' + d.label(s.id), oninput: () => mark() });
+          mark();
           return h('label', { class: 'inline' }, d.label(s.id), inp,
             btn('✓', () => act(() => call('api_admin_initiative', { p_strategist: s.id, p_value: inp.value === '' ? null : Number(inp.value) }), 'Инициатива сохранена', done), 'small'));
         }))),
@@ -284,9 +289,37 @@ export default async function gameView(root, gameId) {
   }
 
   // ───────── действия ─────────
-  function confirmDo(text, fn, ok) {
+  function confirmDo(text, fn, ok, after = done) {
     modal('Подтвердите', (close) => h('div', { class: 'stack' }, h('p', {}, text),
-      h('div', { class: 'row end' }, btn('Отмена', close), btn('Да', () => act(fn, ok, () => { close(); done(); }), 'primary danger'))));
+      h('div', { class: 'row end' }, btn('Отмена', close), btn('Да', () => act(fn, ok, () => { close(); return after(); }), 'primary danger'))));
+  }
+
+  // Уход из игры на подготовке: игрок — сам, ведущий убирает любого; пара уходит по одному.
+  function leaveText(d, s, pid) {
+    const members = d.membersOf(s.id);
+    if (members.length > 1) {
+      return ' Напарник ' + pname(members.find((m) => m !== pid)) + ' останется один: фигуры ' + pname(pid) +
+        ' уйдут из общих отрядов (опустевшие отряды распустятся), общий кошелёк (' + d.money(s.id) + ') разделится пополам.';
+    }
+    const n = d.squadsOf(s.id).length;
+    return n ? ' Отряды (' + n + ') будут распущены, трофеи вернутся в запас.' : '';
+  }
+  function leave(d, s) {
+    confirmDo('Выйти из игры «' + d.game.title + '»?' + leaveText(d, s, session.me.id),
+      () => call('api_strategist_leave', { p_game: gameId, p_player: session.me.id }), 'Вы вышли из игры');
+  }
+  function removeStrategist(d, s) {
+    const members = d.membersOf(s.id);
+    const ask = (pid) => confirmDo('Убрать ' + pname(pid) + ' из игры?' + leaveText(d, s, pid),
+      () => call('api_strategist_leave', { p_game: gameId, p_player: pid }), 'Стратег убран');
+    if (members.length === 1) { ask(members[0]); return; }
+    modal('Убрать из пары «' + d.label(s.id) + '»', (close) => h('div', { class: 'stack' },
+      h('p', { class: 'muted small', style: 'margin:0' }, 'Из пары уходит один: второй остаётся одиночкой, общий кошелёк делится пополам.'),
+      h('div', { class: 'row' }, members.map((m) => btn('Убрать ' + pname(m), () => { close(); ask(m); }, 'danger')))));
+  }
+  function cancelGame(d) {
+    confirmDo('Отменить игру «' + d.game.title + '»? Игра удалится вместе со стратегами и отрядами; общие кошельки пар вернутся участникам, трофеи — в запас.',
+      () => call('api_admin_game_cancel', { p_game: gameId }), 'Игра отменена', () => { location.hash = '#/games'; });
   }
 
   function intrigue() {
