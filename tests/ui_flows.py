@@ -781,6 +781,20 @@ with sync_playwright() as p:
     in_dialog(page, "Да")
     c = wait_call(page, "api_strategist_leave")
     check("В-19 из пары убрана Зои → api_strategist_leave (p_player=2)", has(c, p_game=2, p_player=2), c)
+
+    go(page, "admin-test", "#/game/2", "Ведущему")
+    unpair = page.locator("button:has-text('Разделить напарников')")
+    check("В-14а «Разделить напарников» — одна кнопка, у пары", unpair.count() == 1 and "Любомир и Зои" in unpair.inner_text(),
+          unpair.all_inner_texts())
+    mark(); unpair.click()
+    page.wait_for_selector(f"{dlg} select[name=keep]")
+    check("В-14а в окне — правила раздела и кошелёк 3", "больше" in dialog_text(page) and "(3)" in dialog_text(page), dialog_text(page))
+    page.select_option(f"{dlg} select[name=keep]", label="Зои")
+    in_dialog(page, "Разделить")
+    c = wait_call(page, "api_admin_unpair")
+    check("В-14а → api_admin_unpair (стратег 4, прежний остаётся у Зои)", has(c, p_strategist=4, p_keep=2), c)
+    go(page, "admin-test", "#/game/1", "Ведущему")
+    check("В-14а в идущей игре кнопки нет (там тоже есть пара)", page.locator("button:has-text('Разделить напарников')").count() == 0)
     T["strategist_members"].pop(); st4.update(wallet=None, invited=2)
 
     go(page, "admin-test", "#/game/2", "Ведущему")

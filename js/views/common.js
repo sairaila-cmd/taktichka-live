@@ -1,6 +1,6 @@
 // Общее для разделов: подписи событий журнала, карточка отряда, имена.
-import { cache, session } from '../api.js?v=202610161719';
-import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610161719';
+import { cache, session } from '../api.js?v=202610161733';
+import { h, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, plural } from '../ui.js?v=202610161733';
 
 export const pname = (id) => (cache.playerById && cache.playerById[id] ? cache.playerById[id].name : (id == null ? '—' : '#' + id));
 export const res = (n) => plural(Math.abs(n), 'Ресурс', 'Ресурса', 'Ресурсов');
@@ -37,6 +37,8 @@ export function describe(ev, maps = {}) {
     case 'game_cancel': return 'Игра «' + (d.title || '') + '» отменена';
     case 'partner_invite': return 'Приглашение в напарники: ' + pname(ev.player_id);
     case 'pair': return (ev.actor ? 'Напарники: ' : 'В общий кошелёк перенесено (починка): ') + (d.players || []).map(pname).join(' и ') + ' — ' + res(ev.amount);
+    case 'unpair': return 'Пара разделена: ' + (d.players || []).map(pname).join(' и ') + ' — теперь играют поодиночке' +
+      (ev.amount ? ' (общий кошелёк ' + res(ev.amount) + ' поделён пополам)' : '') + (d.moved ? '; отрядов ушло к ' + pname(ev.player_id) + ': ' + d.moved : '');
     case 'wallet_split': return 'Раздел общего кошелька: ' + Object.entries(d).map(([p, n]) => pname(Number(p)) + ' ' + n).join(', ');
     case 'squad_save': return 'Отряд «' + (d.name || '') + '» собран (' + plural((d.figures || []).length, 'фигура', 'фигуры', 'фигур') + ')';
     case 'squad_delete': return 'Отряд «' + (d.name || '') + '» распущен';
@@ -103,7 +105,7 @@ export function figLink(f, text) {
   return h('a', { href: '#/figure/' + f.id, onclick: (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    import('./figure-card.js?v=202610161719').then((m) => m.openFigure(f.id));
+    import('./figure-card.js?v=202610161733').then((m) => m.openFigure(f.id));
   } }, text || f.name);
 }
 

@@ -694,6 +694,48 @@ expect_ok("Аня → Вере 1 в игре Б", "api_resources_transfer", ANYA
 expect("передача в игре Б — на личный баланс Веры", vr() == vr0 + 5 and wa() == wa0 + 3, (wa(), vr()))
 expect_ok("старый вызов без игры тоже работает", "api_admin_resources", A, 2, 1, None)
 
+print("\nВедущий разделяет напарников на подготовке")
+g8 = expect_ok("игра 8", "api_admin_game", A, None, "Разлука", None, "draft")
+add(VERA, "Р-конь-В", "конь", 2, 2, 1, ["Мобильность"])
+add(VERA, "Р-пешка-В2", "пешка", 1, 1, 1, ["Мобильность"])
+add(GOSHA, "Р-конь-Г", "конь", 2, 2, 1, ["Мобильность"])
+add(GOSHA, "Р-пешка-Г2", "пешка", 1, 1, 1, ["Мобильность"])
+sp8 = expect_ok("Вера и Гоша — пара в игре 8", "api_admin_pair", A, g8, 4, 5)
+cur.execute("update strategists set wallet = 7 where id = %s", (sp8,))
+r_v, r_g = (sql("select resources from players where id=%s", i)[0][0] for i in (4, 5))
+qv8 = expect_ok("отряд из Вериной фигуры", "api_squad_save", A, g8, None, "Р-Верин", [fig["У-пешка-В"]], sp8)
+qg8 = expect_ok("отряд из Гошиной фигуры", "api_squad_save", A, g8, None, "Р-Гошин", [fig["Ладья-Г1"]], sp8)
+qm8 = expect_ok("смешанный: 1 Верина, 2 Гошины", "api_squad_save", A, g8, None, "Р-смешанный",
+                [fig["Р-конь-В"], fig["У-пешка-Г"], fig["Р-конь-Г"]], sp8)
+qt8 = expect_ok("поровну: 1 и 1", "api_squad_save", A, g8, None, "Р-ничья", [fig["Р-пешка-В2"], fig["Р-пешка-Г2"]], sp8)
+s_anya8 = expect_ok("Аня в игре 8 одна", "api_admin_join", A, g8, 2)
+expect_err("игрок разделяет пару", "api_admin_unpair", VERA, sp8, 4)
+expect_err("одиночку не разделить", "api_admin_unpair", A, s_anya8, 2, contains="не пара")
+expect_err("p_keep не из пары", "api_admin_unpair", A, sp8, 2, contains="не из этой пары")
+s_run = sql("select id from strategists where game_id=%s limit 1", g4)[0][0]
+expect_err("в идущей игре нельзя", "api_admin_unpair", A, s_run, 2, contains="началась")
+sb8 = expect_ok("ведущий разделяет Веру и Гошу (прежний стратег — у Веры)", "api_admin_unpair", A, sp8, 4)
+own8 = lambda qid: sql("select strategist_id from squads where id=%s", qid)[0][0]
+figs8 = lambda qid: sorted(r[0] for r in sql("select figure_id from squad_figures where squad_id=%s", qid))
+expect("Вера — прежний стратег, Гоша — новый",
+       sql("select player_id from strategist_members where strategist_id=%s", sp8) == [(4,)]
+       and sql("select player_id from strategist_members where strategist_id=%s", sb8) == [(5,)], sb8)
+expect("кошелёк 7: Вере 4, Гоше 3, общего кошелька нет",
+       sql("select resources from players where id=4")[0][0] == r_v + 4 and sql("select resources from players where id=5")[0][0] == r_g + 3
+       and sql("select wallet from strategists where id=%s", sp8) == [(None,)])
+expect("отряды: Верин и ничья у Веры, Гошин и смешанный у Гоши",
+       [own8(x) for x in (qv8, qt8, qg8, qm8)] == [sp8, sp8, sb8, sb8], [own8(x) for x in (qv8, qt8, qg8, qm8)])
+expect("из смешанного снята Верина фигура", figs8(qm8) == sorted([fig["У-пешка-Г"], fig["Р-конь-Г"]]), figs8(qm8))
+expect("из ничьей снята Гошина фигура", figs8(qt8) == [fig["Р-пешка-В2"]], figs8(qt8))
+expect("фигуры в отрядах Гоши числятся за его стратегом",
+       sql("select count(*) from squad_figures where squad_id in (%s, %s) and strategist_id <> %s", qg8, qm8, sb8)[0][0] == 0)
+expect("снятым фигурам игра убрана из «Источников»", "Разлука" not in src("Р-конь-В") and "Разлука" not in src("Р-пешка-Г2")
+       and "Разлука" in src("Р-конь-Г"), (src("Р-конь-В"), src("Р-пешка-Г2")))
+expect("в журнале — разделение пары",
+       sql("select amount, player_id, (data->>'moved')::int from events where kind='unpair' and game_id=%s", g8) == [(7, 5, 2)],
+       sql("select amount, player_id, data from events where kind='unpair'"))
+expect_err("повторно — уже не пара", "api_admin_unpair", A, sp8, 4, contains="не пара")
+
 print("\nМиграция 013 повторно")
 mig = (pathlib.Path(__file__).parent / "migrations" / "013_battles_turns.sql").read_text(encoding="utf-8")
 try:
@@ -703,6 +745,15 @@ try:
 except Exception as e:
     expect("миграция 013 выполняется", False, str(e).splitlines()[0])
 expect_ok("после миграции начисление с игрой работает", "api_admin_resources", A, 4, 1, None, gb)
+
+print("\nМиграция 014 повторно")
+mig = (pathlib.Path(__file__).parent / "migrations" / "014_unpair.sql").read_text(encoding="utf-8")
+try:
+    cur.execute(mig); res = cur.fetchone()
+    expect("миграция 014 выполняется повторно, проверочная строка", res == (1,), res)
+except Exception as e:
+    expect("миграция 014 выполняется", False, str(e).splitlines()[0])
+expect_err("после миграции функция доступна из браузера (и проверяет код)", "api_admin_unpair", ANYA, sp8, 4)
 
 print("\nПостраничное чтение журнала")
 cur.execute("""insert into events (at, kind, data) values

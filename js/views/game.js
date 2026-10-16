@@ -1,9 +1,9 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161719';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161719';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161719';
-import { statsCard } from './stats.js?v=202610161719';
-import { notifyButton } from '../alerts.js?v=202610161719';
+import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161733';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161733';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161733';
+import { statsCard } from './stats.js?v=202610161733';
+import { notifyButton } from '../alerts.js?v=202610161733';
 
 
 export default async function gameView(root, gameId) {
@@ -298,7 +298,9 @@ export default async function gameView(root, gameId) {
         }))),
       h('div', { class: 'row' }, g.status !== 'closed' ? btn('Добавить стратега…', () => addStrategist(d)) : null,
         btn('Сделать напарниками…', () => pairAdmin(d)), btn('Эхо…', () => echoesAdmin(d)),
-        pairs.map((s) => btn('Разделить кошелёк: ' + d.label(s.id) + ' (' + s.wallet + ')', () => splitWallet(d, s)))),
+        pairs.map((s) => btn('Разделить кошелёк: ' + d.label(s.id) + ' (' + s.wallet + ')', () => splitWallet(d, s))),
+        g.status === 'draft' ? d.strategists.filter((s) => d.membersOf(s.id).length === 2)
+          .map((s) => btn('Разделить напарников: ' + d.label(s.id), () => unpairAdmin(d, s))) : null),
       activeTrophies.length && g.status !== 'draft' ? h('div', { class: 'stack small' }, h('b', {}, 'Трофеи после игры: остаются или исчезают'),
         activeTrophies.map((t) => {
           const sq = d.squadById[t.squad_id];
@@ -656,6 +658,15 @@ export default async function gameView(root, gameId) {
       { name: 'b', label: 'Второй', type: 'select', options: opts },
     ], 'Сделать напарниками', (v) => act(() => call('api_admin_pair', { p_game: gameId, p_a: Number(v.a), p_b: Number(v.b) }),
       'Пара оформлена, Ресурсы слиты', () => { close(); done(); })));
+  }
+  function unpairAdmin(d, s) {
+    const members = d.membersOf(s.id);
+    modal('Разделить напарников: ' + d.label(s.id), (close) => h('div', { class: 'stack' },
+      h('p', { class: 'muted small', style: 'margin:0' }, 'Пара снова станет двумя одиночными стратегами. Отряд уходит тому, чьих фигур в нём больше; ' +
+        'фигуры только другого напарника из него снимаются. Общий кошелёк (' + (s.wallet ?? 0) + ') делится пополам.'),
+      form([{ name: 'keep', label: 'Прежний стратег (инициатива, отряды при равенстве, нечётный Ресурс) остаётся у', type: 'select',
+        options: members.map((m) => [m, pname(m)]) }], 'Разделить',
+      (v) => act(() => call('api_admin_unpair', { p_strategist: s.id, p_keep: Number(v.keep) }), 'Пара разделена', () => { close(); done(); }))));
   }
   function splitWallet(d, s) {
     const members = d.membersOf(s.id);
