@@ -1,5 +1,5 @@
 // Связь с базой: чтение таблиц, вызовы api_* с личным кодом, подписки на изменения.
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610161733';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=202610171305';
 
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -11,22 +11,25 @@ export const session = { code: null, me: null, listeners: new Set() };
 function storeGet() { try { return localStorage.getItem(CODE_KEY); } catch { return null; } }
 function storeSet(v) { try { v ? localStorage.setItem(CODE_KEY, v) : localStorage.removeItem(CODE_KEY); } catch { /* приватный режим */ } }
 
-export async function login(code) {
+export const notify = () => session.listeners.forEach((f) => f());
+
+// silent — не оповещать слушателей (при восстановлении входа app.js сам отрисует страницу один раз).
+export async function login(code, { silent = false } = {}) {
   const { data, error } = await sb.rpc('api_whoami', { p_code: code });
   if (error) throw Object.assign(new Error(error.message), { code: error.code, status: error.status });
   session.code = code; session.me = data; storeSet(code);
-  session.listeners.forEach((f) => f());
+  if (!silent) notify();
   return data;
 }
 export function logout() {
   session.code = null; session.me = null; storeSet(null);
-  session.listeners.forEach((f) => f());
+  notify();
 }
 export async function restore() {
   const code = storeGet();
   if (!code) return null;
   try {
-    return await login(code);
+    return await login(code, { silent: true });
   } catch (error) {
     if (error.code === 'P0001' && error.message === 'Неверный код') {
       storeSet(null);
@@ -41,6 +44,7 @@ export const isAdmin = () => !!(session.me && session.me.is_admin);
 export async function call(fn, args = {}) {
   if (!session.code) throw new Error('Войдите по личному коду');
   const { data, error } = await sb.rpc(fn, { p_code: session.code, ...args });
+  dropFigures();   // правка могла задеть фигуры: следующая отрисовка возьмёт их из базы
   if (error) throw new Error(error.message);
   return data;
 }
@@ -149,4 +153,37 @@ export async function loadRefs(force = false) {
     () => { if (refsRequest === request) refsRequest = null; },
   );
   return request;
+}
+
+// Фигуры и владельцы — общие для разделов (≈80 КБ, раньше качались при каждом переходе и обновлении).
+// Кэш сбрасывают: любая своя правка (call), живое обновление страницы игры, возраст больше FIGS_TTL
+// (чужие правки: таблиц figures и figure_owners нет в Realtime). Отдаются копии объектов:
+// разделы дописывают в них свои поля.
+const FIGS_TTL = 30000;
+let figs = null;            // { figures, owners, at }
+let figsRequest = null;
+let figsGen = 0;            // номер сброса: ответ, пришедший после сброса, в кэш не кладётся
+
+export function dropFigures() { figsGen++; figs = null; figsRequest = null; }
+
+export function loadFigures() {
+  const copy = (c) => ({ figures: c.figures.map((f) => ({ ...f })), owners: c.owners });
+  if (figs && Date.now() - figs.at < FIGS_TTL) return Promise.resolve(copy(figs));
+  if (!figsRequest) {
+    const gen = figsGen;
+    const request = Promise.all([
+      rowsAll('figures', (q) => q.order('name')),
+      rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
+    ]).then(([figures, owners]) => {
+      const c = { figures, owners, at: Date.now() };
+      if (gen === figsGen) figs = c;
+      return c;
+    });
+    figsRequest = request;
+    request.then(
+      () => { if (figsRequest === request) figsRequest = null; },
+      () => { if (figsRequest === request) figsRequest = null; },
+    );
+  }
+  return figsRequest.then(copy);
 }

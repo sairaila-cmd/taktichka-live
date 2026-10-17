@@ -1,7 +1,7 @@
 // Общий журнал: кто, когда и что менял. Порциями по 300, «Показать ещё» и выгрузка всего журнала в CSV.
-import { journalPage, rowsAll } from '../api.js?v=202610161733';
-import { h, btn, toast, plural } from '../ui.js?v=202610161733';
-import { logItem, describe, gameTitle, pname } from './common.js?v=202610161733';
+import { journalPage, rowsAll } from '../api.js?v=202610171305';
+import { h, btn, toast, plural } from '../ui.js?v=202610171305';
+import { logItem, describe, gameTitle, pname } from './common.js?v=202610171305';
 
 const PAGE = 300;
 const CHUNK = 1000; // Максимальный размер страницы журнала

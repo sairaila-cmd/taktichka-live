@@ -755,6 +755,15 @@ except Exception as e:
     expect("миграция 014 выполняется", False, str(e).splitlines()[0])
 expect_err("после миграции функция доступна из браузера (и проверяет код)", "api_admin_unpair", ANYA, sp8, 4)
 
+print("\nМиграция 015 (новые стратеги) дважды")
+mig = (pathlib.Path(__file__).parent / "migrations" / "015_more_strategists.sql").read_text(encoding="utf-8")
+try:
+    for i in (1, 2):
+        cur.execute(mig); res = cur.fetchone()
+        expect(f"миграция 015, запуск {i}: оба персонажа есть, без повторов", res == (2,), res)
+except Exception as e:
+    expect("миграция 015 выполняется", False, str(e).splitlines()[0])
+
 print("\nПостраничное чтение журнала")
 cur.execute("""insert into events (at, kind, data) values
   ('2099-01-01 00:00:00+00', 'journal_page_test', '{}'),

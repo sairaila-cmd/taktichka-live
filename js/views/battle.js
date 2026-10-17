@@ -1,7 +1,7 @@
 // Помощник боя: очередь фигур, свойства по фазам, Сила, броски, исход; вживую у обоих игроков.
-import { rows, rowsAll, call, cache, session, isAdmin, watch } from '../api.js?v=202610161733';
-import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610161733';
-import { glyph, pname, figLink } from './common.js?v=202610161733';
+import { rows, rowsAll, call, cache, session, isAdmin, watch } from '../api.js?v=202610171305';
+import { h, clear, btn, badge, act, toast, STATE_RU, GIFT_RU } from '../ui.js?v=202610171305';
+import { glyph, pname, figLink } from './common.js?v=202610171305';
 
 const SIDE_RU = { attacker: 'нападает', defender: 'защищается' };
 const HINTS = {
@@ -21,7 +21,7 @@ function loadBattleCore() {
   if (window.Battle) return Promise.resolve();
   battleCore = battleCore || new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'js/battle.js?v=202610161733';
+    s.src = 'js/battle.js?v=202610171305';
     s.onload = () => resolve();
     s.onerror = () => { battleCore = null; s.remove(); reject(new Error('Не удалось загрузить расчёт боя — обновите страницу')); };
     document.head.append(s);

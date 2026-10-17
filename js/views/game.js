@@ -1,9 +1,9 @@
 // Страница игры: ход и инициатива, стратеги и отряды, действия по коду, блок ведущего.
-import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers } from '../api.js?v=202610161733';
-import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610161733';
-import { logList, squadCard, pname, glyph, res } from './common.js?v=202610161733';
-import { statsCard } from './stats.js?v=202610161733';
-import { notifyButton } from '../alerts.js?v=202610161733';
+import { rows, rowsAll, call, cache, session, isAdmin, watch, loadPlayers, loadFigures, dropFigures } from '../api.js?v=202610171305';
+import { h, clear, btn, badge, modal, form, act, toast, fmtTime, NOM_GLYPH, STATE_RU, GIFT_RU, STATUS_RU, plural } from '../ui.js?v=202610171305';
+import { logList, squadCard, pname, glyph, res } from './common.js?v=202610171305';
+import { statsCard } from './stats.js?v=202610171305';
+import { notifyButton } from '../alerts.js?v=202610171305';
 
 
 export default async function gameView(root, gameId) {
@@ -23,8 +23,9 @@ export default async function gameView(root, gameId) {
     timer = setTimeout(() => { if (dlg.open) dirty = true; else reload(); }, 400);
   };
   const f = 'game_id=eq.' + gameId;
+  // Изменение в игре могло задеть и фигуры (гибель в бою), их таблицы нет в Realtime — сбросить кэш.
   const unwatch = watch('game' + gameId, [['squads', f], ['squad_figures', f], ['strategists', f], ['turns', f],
-    'squad_moves', ['battles', f], ['game_gifts', f], 'players'], schedule);
+    'squad_moves', ['battles', f], ['game_gifts', f], 'players'], () => { dropFigures(); schedule(); });
   // Страховка, если Realtime молчит: перечитать при возврате на вкладку и раз в 20 с, пока игра идёт
   // (не во время ввода — перерисовка стёрла бы набранное).
   const onVisible = () => { if (document.visibilityState === 'visible') schedule(); };
@@ -698,11 +699,13 @@ export default async function gameView(root, gameId) {
 }
 
 // ───────── загрузка данных игры ─────────
+// Всё, что можно, — одной пачкой параллельных запросов; вторым шагом только ходы отрядов (им нужен номер хода).
 async function load(gameId) {
-  await loadPlayers(true);   // Ресурсы и бонусы игроков меняются по ходу игры
   const byGame = (t, cols, order = (q) => q.order('id')) =>
     rowsAll(t, (q) => order(q.eq('game_id', gameId)), cols);
-  const [games, gifts, strategists, members, squads, sfs, totals, moon, turns, battles, echoes, events, figures, owners, conflicts, kept, lineup, propertyUses] = await Promise.all([
+  const [, { figures, owners }, games, gifts, strategists, members, squads, sfs, totals, moon, turns, battles, echoes, events, conflicts, allTrophies, lineup, propertyUses] = await Promise.all([
+    loadPlayers(true),   // Ресурсы и бонусы игроков меняются по ходу игры
+    loadFigures(),
     rows('games', (q) => q.eq('id', gameId)),
     byGame('game_gifts', undefined, (q) => q.order('gift')),
     byGame('strategists'), byGame('strategist_members', undefined, (q) => q.order('strategist_id').order('player_id')),
@@ -713,10 +716,9 @@ async function load(gameId) {
     byGame('battles', undefined, (q) => q.order('id', { ascending: false })),
     byGame('echoes_public'),
     rows('events', (q) => q.eq('game_id', gameId).order('at', { ascending: false }).order('id', { ascending: false }).limit(200)),
-    rowsAll('figures', (q) => q.order('name')),
-    rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
     rowsAll('figure_conflicts', (q) => q.eq('game_id', gameId).order('figure_id')),
-    rowsAll('trophies', (q) => q.eq('status', 'kept').order('id')),
+    // трофеи: хранящиеся между играми (kept) и лежащие в отрядах (active, отбор по отрядам игры ниже)
+    rowsAll('trophies', (q) => q.in('status', ['active', 'kept']).order('id')),
     // история составов: какие фигуры когда-либо стояли в отрядах игры (для статистики);
     // leave_game — стратег убран из игры: его фигуры из истории не считаются
     rowsAll('events', (q) => q.eq('game_id', gameId).in('kind', ['squad_save', 'figure_move', 'leave_game']).order('at').order('id'),
@@ -724,8 +726,9 @@ async function load(gameId) {
     rowsAll('events', (q) => q.eq('game_id', gameId).eq('kind', 'property_use').order('at').order('id'),
       'figure_id, data, reverted'),
   ]);
-  const squadIds = squads.map((s) => s.id);
-  const trophies = squadIds.length ? await rowsAll('trophies', (q) => q.in('squad_id', squadIds).order('id')) : [];
+  const squadIds = new Set(squads.map((s) => s.id));
+  const kept = allTrophies.filter((t) => t.status === 'kept');
+  const trophies = allTrophies.filter((t) => squadIds.has(t.squad_id));
   const turn = turns[0] || null;
   const moves = turn ? await rowsAll('squad_moves', (q) => q.eq('turn_id', turn.id).order('squad_id')) : [];
   const figById = Object.fromEntries(figures.map((f) => [f.id, f]));
@@ -743,7 +746,8 @@ async function load(gameId) {
   if (giftSet.has('chernaya')) {
     const top = byInit.filter((s) => nSquads(s.id) < 3).slice(0, 3);
     order = top.concat(byInit.filter((s) => !top.includes(s)));
-    byInit.forEach((s, i) => { if (nSquads(s.id) >= 3 && order.indexOf(s) > i) shifted.add(s.id); });
+    // пометка «после тройки» — у каждого стратега с 3+ отрядами, даже если по инициативе он и так ниже тройки
+    byInit.forEach((s) => { if (nSquads(s.id) >= 3) shifted.add(s.id); });
   }
   const mine = session.me ? members.find((m) => m.player_id === session.me.id) : null;
   const squadById = Object.fromEntries(squads.map((s) => [s.id, s]));

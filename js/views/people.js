@@ -1,19 +1,21 @@
 // Персонажи: стратеги выбранной игры (напарники — одной строкой) с Ресурсами, отрядами и фигурами;
 // ниже, свёрнуто, — персонажи, не участвующие в этой игре. Передача Ресурсов, кнопки ведущего.
-import { rowsAll, call, cache, session, isAdmin, loadPlayers } from '../api.js?v=202610161733';
-import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610161733';
-import { res, pname } from './common.js?v=202610161733';
+import { rowsAll, call, cache, session, isAdmin, loadPlayers, loadFigures } from '../api.js?v=202610171305';
+import { h, btn, modal, form, act, refresh, STATUS_RU } from '../ui.js?v=202610171305';
+import { res, pname } from './common.js?v=202610171305';
 
 export default async function peopleView(root, gameParam) {
-  await loadPlayers(true);
-  const games = await rowsAll('games', (q) => q.neq('status', 'closed').order('id', { ascending: false }));
+  const [, games, { figures, owners }] = await Promise.all([
+    loadPlayers(true),
+    rowsAll('games', (q) => q.neq('status', 'closed').order('id', { ascending: false })),
+    loadFigures(),
+  ]);
   // По умолчанию — последняя идущая игра, если её нет — последняя в сборе отрядов.
   const game = games.find((g) => g.id === Number(gameParam)) || games.find((g) => g.status === 'running') || games[0] || null;
   const people = cache.players.filter((p) => !p.is_admin);
+  const activeFigs = figures.filter((f) => f.status === 'active');
 
-  const [owners, activeFigs, strategists, members, squads, sfs, gifts] = await Promise.all([
-    rowsAll('figure_owners', (q) => q.order('figure_id').order('player_id')),
-    rowsAll('figures', (q) => q.eq('status', 'active').order('id'), 'id'),
+  const [strategists, members, squads, sfs, gifts] = await Promise.all([
     game ? rowsAll('strategists', (q) => q.eq('game_id', game.id).order('id')) : [],
     game ? rowsAll('strategist_members', (q) => q.eq('game_id', game.id).order('strategist_id').order('player_id')) : [],
     game ? rowsAll('squads', (q) => q.eq('game_id', game.id).order('id'), 'id, strategist_id') : [],

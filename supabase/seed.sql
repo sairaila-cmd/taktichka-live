@@ -603,5 +603,11 @@ update players set name = 'Александр Смит',
 where name = 'Сэр Малеагант';
 update figures set owner_label = replace(owner_label, 'Сэр Малеагант', 'Александр Смит') where owner_label like '%Сэр Малеагант%';
 
+-- миграция 015: новые стратеги
+insert into players (name, characters, is_admin) values
+  ('Алехандро Дренте', array['Алехандро Дренте']::text[], false),
+  ('Вестник', array['Вестник']::text[], false)
+on conflict (name) do nothing;
+
 insert into events (kind, data, comment) values ('import', jsonb_build_object('figures', 175, 'players', 25), 'Перенос из дашборда «Фигуры тактички»');
 commit;

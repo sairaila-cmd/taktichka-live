@@ -451,6 +451,16 @@ with sync_playwright() as p:
     go(page, "zoi-test", "#/game/1", "Закончить ход")
     check("И-41 без Чёрной луны кнопка называется «Закончить ход»", page.locator("button:has-text('Пропустить такт')").count() == 0)
     setup()
+    # второй стратег с 3 отрядами — выше всех по инициативе; у стратега №2 (3 отряда) инициатива и так ниже тройки
+    T["strategists"].append({"id": 5, "game_id": 1, "wallet": None, "invited": None, "initiative": 20})
+    T["strategist_members"].append({"strategist_id": 5, "game_id": 1, "player_id": 5})
+    T["squads"] += [{"id": 60 + i, "game_id": 1, "strategist_id": 5, "name": "Гром " + str(i), "name_key": "гром " + str(i),
+                     "destroyed": False, "dead_figure": None, "rage": 0} for i in range(3)]
+    go(page, None, "#/game/1", "Порядок хода")
+    items = page.locator("ol.order li").all_inner_texts()
+    check("И-73 Чёрная луна: «после тройки» у каждого стратега с 3+ отрядами, порядок — сначала стратег с 1 отрядом",
+          len(items) == 3 and "после тройки" not in items[0] and all("после тройки" in t for t in items[1:]), items)
+    setup()
 
     go(page, "zoi-test", "#/game/1", "Моё участие")
     volki = squad(page, "Волки", mine=True)
